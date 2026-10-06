@@ -1,0 +1,268 @@
+{
+  "origin": "dataset:datasets\\ambiguous",
+  "collected_at": "2026-09-14T09:00:14-03:00",
+  "metadata": {
+    "dataset_type": "synthetic_training",
+    "level": "basic",
+    "scenario": "ambiguous",
+    "seed": 42,
+    "generated_at": "2026-09-22T13:59:05.922762-03:00",
+    "warning": "Dados fictícios para uso acadêmico; não representam um incidente real."
+  },
+  "inventory": {
+    "processes": 8,
+    "services": 3,
+    "files": 3,
+    "log_events": 6,
+    "connections": 0
+  },
+  "coverage": {
+    "processes.csv": "ok",
+    "permissions.csv": "ok",
+    "connections.csv": "ausente",
+    "services.txt": "ok",
+    "journal.log": "ok"
+  },
+  "conclusion": [
+    "2 finding(s): 0 alto, 0 medio, 0 baixo, 2 informativo.",
+    "Com as evidências disponíveis, não foram encontradas relações de risco relevantes.",
+    "Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta.",
+    "Fontes não disponíveis: connections.csv. Conclusões que dependem delas ficam em aberto."
+  ],
+  "findings": [
+    {
+      "rule": "CORR-02",
+      "title": "Comunicação de saída em contexto root: PID 1510 curl -> metrics.example.invalid",
+      "severity": "informativo",
+      "confidence": "media",
+      "evidence": [
+        {
+          "statement": "PID 1510 (PPID 1500) user=root cmd='/usr/bin/curl -fsS https://metrics.example.invalid/v1/push'",
+          "ref": "processes.csv:6"
+        },
+        {
+          "statement": "cadeia: 1510:/usr/bin/curl -fsS https://metrics.example.in(root) <- 1500:/usr/bin/python3 /opt/monitor/agent.py(root) <- 1:/sbin/init(root)",
+          "ref": "árvore de processos"
+        },
+        {
+          "statement": "pertence ao serviço monitor-agent.service (descendente de 1500)",
+          "ref": "services.txt:4"
+        },
+        {
+          "statement": "/opt/monitor/agent.py (file) modo 0755 dono root:root",
+          "ref": "permissions.csv:3"
+        },
+        {
+          "statement": "log: monitor-agent[1510] remote status=200",
+          "ref": "journal.log:4"
+        },
+        {
+          "statement": "log: monitor-agent[1500] sending metrics batch=12",
+          "ref": "journal.log:3"
+        }
+      ],
+      "interpretation": [
+        "PID 1510 (curl) acessa a rede como root.",
+        "Destino(s): metrics.example.invalid (domínio reservado (.invalid, RFC 6761)).",
+        "Os logs do serviço descrevem essa comunicação: consistente com comportamento esperado."
+      ],
+      "hypotheses": [
+        "H1 (compatível com os logs): checagem ou telemetria legítima do serviço.",
+        "H2: canal de comando e controle ou exfiltração disfarçado de serviço confiável."
+      ],
+      "missing_evidence": [
+        "resolução DNS e reputação do destino",
+        "frequência das conexões (beaconing)",
+        "volume e conteúdo trafegado"
+      ],
+      "not_proven": "Conexão externa de um serviço root, isoladamente, NÃO caracteriza C2 ou malware.",
+      "entities": {
+        "pids": [
+          "1510"
+        ]
+      },
+      "id": "F-001"
+    },
+    {
+      "rule": "CORR-04",
+      "title": "Snapshot de processos e logs não são do mesmo instante",
+      "severity": "informativo",
+      "confidence": "media",
+      "evidence": [
+        {
+          "statement": "PID 1500 (PPID 1) user=root cmd='/usr/bin/python3 /opt/monitor/agent.py'",
+          "ref": "processes.csv:5"
+        },
+        {
+          "statement": "log: systemd[1] Started monitor-agent.service - Monitoring Agent.",
+          "ref": "journal.log:2"
+        }
+      ],
+      "interpretation": [
+        "monitor-agent.service: PID 1500 aparece no snapshot em 2026-09-14 09:00:06, antes do início registrado no log (2026-09-14 09:00:20)",
+        "A linha do tempo mantém a ordem de cada fonte, mas não permite concluir causalidade entre elas."
+      ],
+      "hypotheses": [
+        "H1: fontes coletadas em momentos ou relógios diferentes (mais provável).",
+        "H2: serviço reiniciado entre as coletas; H3: log alterado (improvável sem outros indícios)."
+      ],
+      "missing_evidence": [
+        "horário exato de coleta de cada fonte",
+        "horário real de início dos processos (ps -o lstart)"
+      ],
+      "not_proven": "Inconsistência de coleta não é indício de ataque.",
+      "entities": {},
+      "id": "F-002"
+    }
+  ],
+  "clean_checks": [
+    {
+      "rule": "CORR-01",
+      "subject": "ssh.service",
+      "reason": "executa como root, mas não há permissões coletadas para /usr/sbin/sshd: não dá para afirmar nem descartar risco."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "cron.service",
+      "reason": "executa como root, mas não há permissões coletadas para /usr/sbin/cron: não dá para afirmar nem descartar risco."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "monitor-agent.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/opt/monitor/agent.py 0755 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-02",
+      "subject": "sessão aluno@pts/0 (PID 1632)",
+      "reason": "2 processo(s) como 'aluno' sem troca de privilégio; login de 10.20.30.44 confirmado no log"
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "ssh.service",
+      "reason": "log de início coerente com o PID 612."
+    },
+    {
+      "rule": "PERM-01",
+      "subject": "/home/aluno/check.py",
+      "reason": "pertence a 'aluno' e só é executado por ele: sem cruzamento de privilégio."
+    }
+  ],
+  "timeline": [
+    {
+      "timestamp": "2026-09-14T09:00:00-03:00",
+      "source": "journal.log:1",
+      "event": "systemd: Started ssh.service - OpenBSD Secure Shell server.",
+      "links": [
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:00-03:00",
+      "source": "processes.csv:2",
+      "event": "processo observado no snapshot: PID 1 (root) /sbin/init",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:02-03:00",
+      "source": "processes.csv:3",
+      "event": "processo observado no snapshot: PID 612 (root) /usr/sbin/sshd -D",
+      "links": [
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:04-03:00",
+      "source": "processes.csv:4",
+      "event": "processo observado no snapshot: PID 901 (root) /usr/sbin/cron -f",
+      "links": [
+        "cron.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:06-03:00",
+      "source": "processes.csv:5",
+      "event": "processo observado no snapshot: PID 1500 (root) /usr/bin/python3 /opt/monitor/agent.py",
+      "links": [
+        "monitor-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:08-03:00",
+      "source": "processes.csv:6",
+      "event": "processo observado no snapshot: PID 1510 (root) /usr/bin/curl -fsS https://metrics.example.invalid/v1/push",
+      "links": [
+        "monitor-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:10-03:00",
+      "source": "processes.csv:7",
+      "event": "processo observado no snapshot: PID 1632 (aluno) sshd: aluno@pts/0",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:12-03:00",
+      "source": "processes.csv:8",
+      "event": "processo observado no snapshot: PID 1640 (aluno) /bin/bash",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:14-03:00",
+      "source": "processes.csv:9",
+      "event": "processo observado no snapshot: PID 1645 (aluno) /usr/bin/python3 /home/aluno/check.py",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:20-03:00",
+      "source": "journal.log:2",
+      "event": "systemd: Started monitor-agent.service - Monitoring Agent.",
+      "links": [
+        "monitor-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:22-03:00",
+      "source": "journal.log:3",
+      "event": "monitor-agent: sending metrics batch=12",
+      "links": [
+        "PID 1500 (root)",
+        "monitor-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:25-03:00",
+      "source": "journal.log:4",
+      "event": "monitor-agent: remote status=200",
+      "links": [
+        "PID 1510 (root)",
+        "monitor-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:26:40-03:00",
+      "source": "journal.log:5",
+      "event": "sshd: Accepted publickey for aluno from 10.20.30.44 port 51590 ssh2",
+      "links": [
+        "PID 1632 (aluno)",
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:26:55-03:00",
+      "source": "journal.log:6",
+      "event": "python3: check completed status=OK",
+      "links": [
+        "PID 1645 (aluno)",
+        "monitor-agent.service"
+      ]
+    }
+  ],
+  "limitations": [
+    "snapshot de processos não é atômico: timestamps de 2026-09-14 09:00:00-03:00 a 2026-09-14 09:00:14-03:00.",
+    "journal.log não tem ano nem fuso: assumidos 2026 e UTC-03:00 (derivados de processes.csv).",
+    "Dataset sintético: mtimes são artificiais; nenhuma conclusão depende só deles.",
+    "Snapshot pontual: processos de vida curta entre coletas não são vistos.",
+    "Membros de grupos não são coletados: escrita por grupo gera severidade média.",
+    "Destinos de rede são classificados de forma descritiva (privado/público), não por reputação."
+  ]
+}

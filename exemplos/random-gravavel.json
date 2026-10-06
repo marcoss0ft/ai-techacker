@@ -1,0 +1,291 @@
+{
+  "origin": "dataset:datasets\\random-gravavel",
+  "collected_at": "2026-09-14T09:00:16-03:00",
+  "metadata": {
+    "dataset_type": "synthetic_training",
+    "level": "basic",
+    "scenario": "random",
+    "seed": 2,
+    "generated_at": "2026-09-22T13:59:07.081845-03:00",
+    "warning": "Dados fictícios para uso acadêmico; não representam um incidente real."
+  },
+  "inventory": {
+    "processes": 9,
+    "services": 4,
+    "files": 7,
+    "log_events": 6,
+    "connections": 0
+  },
+  "coverage": {
+    "processes.csv": "ok",
+    "permissions.csv": "ok",
+    "connections.csv": "ausente",
+    "services.txt": "ok",
+    "journal.log": "ok"
+  },
+  "conclusion": [
+    "2 finding(s): 1 alto, 0 medio, 0 baixo, 1 informativo.",
+    "Relações de risco que merecem investigação prioritária: F-001 report-sync.service (root) depende de /opt/report-sync/run.sh, modificável por usuário comum.",
+    "Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta.",
+    "Fontes não disponíveis: connections.csv. Conclusões que dependem delas ficam em aberto."
+  ],
+  "findings": [
+    {
+      "rule": "CORR-01",
+      "title": "report-sync.service (root) depende de /opt/report-sync/run.sh, modificável por usuário comum",
+      "severity": "alto",
+      "confidence": "alta",
+      "evidence": [
+        {
+          "statement": "serviço report-sync.service estado=running executa como root: ExecStart='/bin/bash /opt/report-sync/run.sh'",
+          "ref": "services.txt:5"
+        },
+        {
+          "statement": "PID 2484 (PPID 1) user=root cmd='/bin/bash /opt/report-sync/run.sh' (vinculado ao serviço por ExecStart == cmd)",
+          "ref": "processes.csv:10"
+        },
+        {
+          "statement": "/opt/report-sync/run.sh (file) modo 0777 dono root:root",
+          "ref": "permissions.csv:8"
+        },
+        {
+          "statement": "/opt/report-sync/run.sh é o script usado pelo serviço",
+          "ref": "correlação"
+        },
+        {
+          "statement": "sessão do usuário comum 'aluno' (pts/0) de 10.20.30.44",
+          "ref": "journal.log:3"
+        },
+        {
+          "statement": "1 eventos de log do serviço entre 2026-09-14 09:03:36 e 2026-09-14 09:03:36",
+          "ref": "journal.log:6 … journal.log:6"
+        }
+      ],
+      "interpretation": [
+        "report-sync.service roda como root e depende de /opt/report-sync/run.sh (script).",
+        "/opt/report-sync/run.sh pode ser alterado por qualquer usuário (bit 'w' para outros).",
+        "Identidade privilegiada + recurso executado + capacidade de modificação: quem alterar o recurso executa código como root na próxima execução do serviço.",
+        "mtime de /opt/report-sync/run.sh (2026-09-08 08:54:00) é anterior ao login do usuário comum (2026-09-14 09:00:08)."
+      ],
+      "hypotheses": [
+        "H1 (mais provável sem outros indícios): erro de configuração, ex.: chmod 777 em manutenção.",
+        "H2: um usuário local alterou /opt/report-sync/run.sh para ganhar root. Os dados não mostram alteração, nem a descartam."
+      ],
+      "missing_evidence": [
+        "hash/conteúdo de /opt/report-sync/run.sh comparado a uma versão conhecida",
+        "auditoria de escrita em /opt/report-sync/run.sh (auditd) e ctime do arquivo",
+        "histórico de comandos dos usuários que podem escrever no arquivo"
+      ],
+      "not_proven": "Não prova exploração: mostra que existe um caminho de escalonamento de privilégio.",
+      "entities": {
+        "services": [
+          "report-sync.service"
+        ],
+        "pids": [
+          "2484"
+        ],
+        "paths": [
+          "/opt/report-sync/run.sh"
+        ]
+      },
+      "id": "F-001"
+    },
+    {
+      "rule": "CORR-04",
+      "title": "Snapshot de processos e logs não são do mesmo instante",
+      "severity": "informativo",
+      "confidence": "media",
+      "evidence": [
+        {
+          "statement": "PID 2484 (PPID 1) user=root cmd='/bin/bash /opt/report-sync/run.sh'",
+          "ref": "processes.csv:10"
+        },
+        {
+          "statement": "log: systemd[1] Started report-sync.service - report-sync service.",
+          "ref": "journal.log:6"
+        }
+      ],
+      "interpretation": [
+        "report-sync.service: PID 2484 aparece no snapshot em 2026-09-14 09:00:16, antes do início registrado no log (2026-09-14 09:03:36)",
+        "A linha do tempo mantém a ordem de cada fonte, mas não permite concluir causalidade entre elas."
+      ],
+      "hypotheses": [
+        "H1: fontes coletadas em momentos ou relógios diferentes (mais provável).",
+        "H2: serviço reiniciado entre as coletas; H3: log alterado (improvável sem outros indícios)."
+      ],
+      "missing_evidence": [
+        "horário exato de coleta de cada fonte",
+        "horário real de início dos processos (ps -o lstart)"
+      ],
+      "not_proven": "Inconsistência de coleta não é indício de ataque.",
+      "entities": {},
+      "id": "F-002"
+    }
+  ],
+  "clean_checks": [
+    {
+      "rule": "CORR-01",
+      "subject": "ssh.service",
+      "reason": "executa como root, mas não há permissões coletadas para /usr/sbin/sshd: não dá para afirmar nem descartar risco."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "apache2.service",
+      "reason": "unit sem User= (root), mas o processo executa como www-data."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "cron.service",
+      "reason": "executa como root, mas não há permissões coletadas para /usr/sbin/cron: não dá para afirmar nem descartar risco."
+    },
+    {
+      "rule": "CORR-02",
+      "subject": "sessão aluno@pts/0 (PID 1204)",
+      "reason": "2 processo(s) como 'aluno' sem troca de privilégio; login de 10.20.30.44 confirmado no log"
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "ssh.service",
+      "reason": "log de início coerente com o PID 612."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "apache2.service",
+      "reason": "log de início coerente com o PID 733."
+    },
+    {
+      "rule": "PERM-01",
+      "subject": "/home/aluno/check.py",
+      "reason": "pertence a 'aluno' e só é executado por ele: sem cruzamento de privilégio."
+    }
+  ],
+  "timeline": [
+    {
+      "timestamp": "2026-09-08T08:54:00-03:00",
+      "source": "permissions.csv:8",
+      "event": "mtime de /opt/report-sync/run.sh (0777)",
+      "links": [
+        "F-001"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:00-03:00",
+      "source": "journal.log:1",
+      "event": "systemd: Started ssh.service - OpenBSD Secure Shell server.",
+      "links": [
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:00-03:00",
+      "source": "processes.csv:2",
+      "event": "processo observado no snapshot: PID 1 (root) /sbin/init",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:02-03:00",
+      "source": "journal.log:2",
+      "event": "systemd: Started apache2.service - The Apache HTTP Server.",
+      "links": [
+        "apache2.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:02-03:00",
+      "source": "processes.csv:3",
+      "event": "processo observado no snapshot: PID 612 (root) /usr/sbin/sshd -D",
+      "links": [
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:04-03:00",
+      "source": "processes.csv:4",
+      "event": "processo observado no snapshot: PID 701 (root) /usr/sbin/cron -f",
+      "links": [
+        "cron.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:06-03:00",
+      "source": "processes.csv:5",
+      "event": "processo observado no snapshot: PID 733 (www-data) /usr/sbin/apache2 -k start",
+      "links": [
+        "apache2.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:08-03:00",
+      "source": "journal.log:3",
+      "event": "sshd: Accepted publickey for aluno from 10.20.30.44 port 51518 ssh2",
+      "links": [
+        "PID 1204 (aluno)",
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:08-03:00",
+      "source": "processes.csv:6",
+      "event": "processo observado no snapshot: PID 744 (www-data) /usr/sbin/apache2 -k start",
+      "links": [
+        "apache2.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:10-03:00",
+      "source": "journal.log:4",
+      "event": "systemd-logind: New session 7 of user aluno.",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:10-03:00",
+      "source": "processes.csv:7",
+      "event": "processo observado no snapshot: PID 1204 (aluno) sshd: aluno@pts/0",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:12-03:00",
+      "source": "processes.csv:8",
+      "event": "processo observado no snapshot: PID 1212 (aluno) /bin/bash",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:14-03:00",
+      "source": "processes.csv:9",
+      "event": "processo observado no snapshot: PID 1234 (aluno) /usr/bin/python3 /home/aluno/check.py",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:15-03:00",
+      "source": "journal.log:5",
+      "event": "python3: routine check completed status=OK",
+      "links": [
+        "PID 1234 (aluno)"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:16-03:00",
+      "source": "processes.csv:10",
+      "event": "processo observado no snapshot: PID 2484 (root) /bin/bash /opt/report-sync/run.sh",
+      "links": [
+        "report-sync.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:03:36-03:00",
+      "source": "journal.log:6",
+      "event": "systemd: Started report-sync.service - report-sync service.",
+      "links": [
+        "report-sync.service"
+      ]
+    }
+  ],
+  "limitations": [
+    "snapshot de processos não é atômico: timestamps de 2026-09-14 09:00:00-03:00 a 2026-09-14 09:00:16-03:00.",
+    "journal.log não tem ano nem fuso: assumidos 2026 e UTC-03:00 (derivados de processes.csv).",
+    "Dataset sintético: mtimes são artificiais; nenhuma conclusão depende só deles.",
+    "Snapshot pontual: processos de vida curta entre coletas não são vistos.",
+    "Membros de grupos não são coletados: escrita por grupo gera severidade média.",
+    "Destinos de rede são classificados de forma descritiva (privado/público), não por reputação."
+  ]
+}

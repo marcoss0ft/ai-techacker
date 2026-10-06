@@ -1,0 +1,111 @@
+==============================================================================
+ ENDPOINT INVESTIGATOR: dataset:datasets\correlation
+ snapshot 2026-09-14 09:00:12 | 7 processos, 3 serviços, 4 objetos, 7 logs, 0 sockets
+==============================================================================
+
+CONCLUSÃO
+  • 3 finding(s): 1 alto, 1 medio, 0 baixo, 1 informativo.
+  • Relações de risco que merecem investigação prioritária: F-001 backup-agent.service (root) depende de /opt/backup/backup.sh, modificável por usuário comum.
+  • Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta.
+  • Fontes não disponíveis: connections.csv. Conclusões que dependem delas ficam em aberto.
+
+[ALTO       ] F-001 backup-agent.service (root) depende de /opt/backup/backup.sh, modificável por usuário comum
+   confiança: alta | regra: CORR-01
+   EVIDÊNCIA (observado):
+     - serviço backup-agent.service estado=running executa como root: ExecStart='/bin/bash /opt/backup/backup.sh'  [services.txt:4]
+     - PID 2417 (PPID 1) user=root cmd='/bin/bash /opt/backup/backup.sh' (vinculado ao serviço por ExecStart == cmd)  [processes.csv:5]
+     - /opt/backup/backup.sh (file) modo 0777 dono root:root  [permissions.csv:3]
+     - /opt/backup/backup.sh é o script usado pelo serviço  [correlação]
+     - sessão do usuário comum 'aluno' (pts/0) de 10.20.30.44  [journal.log:6]
+     - 4 eventos de log do serviço entre 2026-09-14 09:02:00 e 2026-09-14 09:02:05  [journal.log:2 … journal.log:5]
+   INTERPRETAÇÃO:
+     - backup-agent.service roda como root e depende de /opt/backup/backup.sh (script).
+     - /opt/backup/backup.sh pode ser alterado por qualquer usuário (bit 'w' para outros).
+     - Identidade privilegiada + recurso executado + capacidade de modificação: quem alterar o recurso executa código como root na próxima execução do serviço.
+     - mtime de /opt/backup/backup.sh (2026-09-13 08:59:00) é anterior ao login do usuário comum (2026-09-14 09:25:00).
+   HIPÓTESES:
+     - H1 (mais provável sem outros indícios): erro de configuração, ex.: chmod 777 em manutenção.
+     - H2: um usuário local alterou /opt/backup/backup.sh para ganhar root. Os dados não mostram alteração, nem a descartam.
+   EVIDÊNCIA AUSENTE:
+     - hash/conteúdo de /opt/backup/backup.sh comparado a uma versão conhecida
+     - auditoria de escrita em /opt/backup/backup.sh (auditd) e ctime do arquivo
+     - histórico de comandos dos usuários que podem escrever no arquivo
+   NÃO PROVA: Não prova exploração: mostra que existe um caminho de escalonamento de privilégio.
+
+[MEDIO      ] F-002 Comunicação de saída em contexto root: PID 2421 curl -> updates.example.invalid
+   confiança: media | regra: CORR-02
+   EVIDÊNCIA (observado):
+     - PID 2421 (PPID 2417) user=root cmd='/usr/bin/curl -fsS https://updates.example.invalid/status'  [processes.csv:6]
+     - cadeia: 2421:/usr/bin/curl -fsS https://updates.example.in(root) <- 2417:/bin/bash /opt/backup/backup.sh(root) <- 1:/sbin/init(root)  [árvore de processos]
+     - pertence ao serviço backup-agent.service (descendente de 2417)  [services.txt:4]
+     - /opt/backup/backup.sh (file) modo 0777 dono root:root  [permissions.csv:3]
+     - log: backup-agent[2417] backup job started  [journal.log:3]
+     - log: backup-agent[2417] checking remote status endpoint  [journal.log:4]
+     - log: backup-agent[2417] backup completed with status=OK  [journal.log:5]
+   INTERPRETAÇÃO:
+     - PID 2421 (curl) acessa a rede como root.
+     - Destino(s): updates.example.invalid (domínio reservado (.invalid, RFC 6761)).
+     - Os logs do serviço descrevem essa comunicação: consistente com comportamento esperado.
+     - O script do serviço (/opt/backup/backup.sh) é modificável: o destino poderia ser trocado.
+   HIPÓTESES:
+     - H1 (compatível com os logs): checagem ou telemetria legítima do serviço.
+     - H2: canal de comando e controle ou exfiltração disfarçado de serviço confiável.
+   EVIDÊNCIA AUSENTE:
+     - resolução DNS e reputação do destino
+     - frequência das conexões (beaconing)
+     - volume e conteúdo trafegado
+   NÃO PROVA: Conexão externa de um serviço root, isoladamente, NÃO caracteriza C2 ou malware.
+
+[INFORMATIVO] F-003 Snapshot de processos e logs não são do mesmo instante
+   confiança: media | regra: CORR-04
+   EVIDÊNCIA (observado):
+     - PID 2417 (PPID 1) user=root cmd='/bin/bash /opt/backup/backup.sh'  [processes.csv:5]
+     - log: systemd[1] Starting backup-agent.service - Internal Backup Agent...  [journal.log:2]
+   INTERPRETAÇÃO:
+     - backup-agent.service: PID 2417 aparece no snapshot em 2026-09-14 09:00:06, antes do início registrado no log (2026-09-14 09:02:00)
+     - A linha do tempo mantém a ordem de cada fonte, mas não permite concluir causalidade entre elas.
+   HIPÓTESES:
+     - H1: fontes coletadas em momentos ou relógios diferentes (mais provável).
+     - H2: serviço reiniciado entre as coletas; H3: log alterado (improvável sem outros indícios).
+   EVIDÊNCIA AUSENTE:
+     - horário exato de coleta de cada fonte
+     - horário real de início dos processos (ps -o lstart)
+   NÃO PROVA: Inconsistência de coleta não é indício de ataque.
+
+VERIFICAÇÕES SEM ACHADO
+  ✓ [CORR-01] ssh.service: executa como root, mas não há permissões coletadas para /usr/sbin/sshd: não dá para afirmar nem descartar risco.
+  ✓ [CORR-01] cron.service: executa como root, mas não há permissões coletadas para /usr/sbin/cron: não dá para afirmar nem descartar risco.
+  ✓ [CORR-02] sessão aluno@pts/0 (PID 2630): 1 processo(s) como 'aluno' sem troca de privilégio; login de 10.20.30.44 confirmado no log
+  ✓ [CORR-04] ssh.service: log de início coerente com o PID 612.
+
+LINHA DO TEMPO
+  2026-09-13 08:59:00  mtime de /opt/backup/backup.sh (0777)  -> F-001
+  2026-09-14 09:00:00  systemd: Started ssh.service - OpenBSD Secure Shell server.  -> ssh.service
+  2026-09-14 09:00:00  processo observado no snapshot: PID 1 (root) /sbin/init
+  2026-09-14 09:00:02  processo observado no snapshot: PID 612 (root) /usr/sbin/sshd -D  -> ssh.service
+  2026-09-14 09:00:04  processo observado no snapshot: PID 821 (root) /usr/sbin/cron -f  -> cron.service
+  2026-09-14 09:00:06  processo observado no snapshot: PID 2417 (root) /bin/bash /opt/backup/backup.sh  -> backup-agent.service
+  2026-09-14 09:00:08  processo observado no snapshot: PID 2421 (root) /usr/bin/curl -fsS https://updates.example.invalid/status  -> backup-agent.service
+  2026-09-14 09:00:10  processo observado no snapshot: PID 2630 (aluno) sshd: aluno@pts/0
+  2026-09-14 09:00:12  processo observado no snapshot: PID 2638 (aluno) /bin/bash
+  2026-09-14 09:02:00  systemd: Starting backup-agent.service - Internal Backup Agent...  -> backup-agent.service
+  2026-09-14 09:02:03  backup-agent: backup job started  -> PID 2417 (root); backup-agent.service
+  2026-09-14 09:02:04  backup-agent: checking remote status endpoint  -> PID 2417 (root); backup-agent.service
+  2026-09-14 09:02:05  backup-agent: backup completed with status=OK  -> PID 2417 (root); backup-agent.service
+  2026-09-14 09:25:00  sshd: Accepted publickey for aluno from 10.20.30.44 port 51518 ssh2  -> PID 2630 (aluno); ssh.service
+  2026-09-14 09:25:02  systemd-logind: New session 9 of user aluno.
+
+LIMITAÇÕES
+  - snapshot de processos não é atômico: timestamps de 2026-09-14 09:00:00-03:00 a 2026-09-14 09:00:12-03:00.
+  - journal.log não tem ano nem fuso: assumidos 2026 e UTC-03:00 (derivados de processes.csv).
+  - Dataset sintético: mtimes são artificiais; nenhuma conclusão depende só deles.
+  - Snapshot pontual: processos de vida curta entre coletas não são vistos.
+  - Membros de grupos não são coletados: escrita por grupo gera severidade média.
+  - Destinos de rede são classificados de forma descritiva (privado/público), não por reputação.
+
+COBERTURA
+  processes.csv: ok
+  permissions.csv: ok
+  connections.csv: ausente
+  services.txt: ok
+  journal.log: ok

@@ -1,0 +1,7 @@
+# Scripts precisam de LF para rodar no Linux (Kali), mesmo se clonados no Windows
+*.sh   text eol=lf
+*.py   text eol=lf
+*.csv  text eol=lf
+*.log  text eol=lf
+*.txt  text eol=lf
+*.md   text eol=lf

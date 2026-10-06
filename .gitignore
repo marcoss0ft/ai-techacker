@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Saídas geradas ao rodar a ferramenta / o gerador fora das pastas versionadas
+*.json.tmp
+training/
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Pacotes
+*.zip

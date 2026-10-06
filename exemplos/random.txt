@@ -1,0 +1,68 @@
+==============================================================================
+ ENDPOINT INVESTIGATOR: dataset:datasets\random
+ snapshot 2026-09-14 09:00:16 | 9 processos, 4 serviços, 7 objetos, 6 logs, 0 sockets
+==============================================================================
+
+CONCLUSÃO
+  • 1 finding(s): 0 alto, 0 medio, 0 baixo, 1 informativo.
+  • Com as evidências disponíveis, não foram encontradas relações de risco relevantes.
+  • Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta.
+  • Fontes não disponíveis: connections.csv. Conclusões que dependem delas ficam em aberto.
+
+[INFORMATIVO] F-001 Snapshot de processos e logs não são do mesmo instante
+   confiança: media | regra: CORR-04
+   EVIDÊNCIA (observado):
+     - PID 5805 (PPID 1) user=root cmd='/bin/bash /opt/backup-agent/run.sh'  [processes.csv:10]
+     - log: systemd[1] Started backup-agent.service - backup-agent service.  [journal.log:6]
+   INTERPRETAÇÃO:
+     - backup-agent.service: PID 5805 aparece no snapshot em 2026-09-14 09:00:16, antes do início registrado no log (2026-09-14 09:03:00)
+     - A linha do tempo mantém a ordem de cada fonte, mas não permite concluir causalidade entre elas.
+   HIPÓTESES:
+     - H1: fontes coletadas em momentos ou relógios diferentes (mais provável).
+     - H2: serviço reiniciado entre as coletas; H3: log alterado (improvável sem outros indícios).
+   EVIDÊNCIA AUSENTE:
+     - horário exato de coleta de cada fonte
+     - horário real de início dos processos (ps -o lstart)
+   NÃO PROVA: Inconsistência de coleta não é indício de ataque.
+
+VERIFICAÇÕES SEM ACHADO
+  ✓ [CORR-01] ssh.service: executa como root, mas não há permissões coletadas para /usr/sbin/sshd: não dá para afirmar nem descartar risco.
+  ✓ [CORR-01] apache2.service: unit sem User= (root), mas o processo executa como www-data.
+  ✓ [CORR-01] cron.service: executa como root, mas não há permissões coletadas para /usr/sbin/cron: não dá para afirmar nem descartar risco.
+  ✓ [CORR-01] backup-agent.service: executa como root, mas nenhum recurso é modificável por usuário comum (/opt/backup-agent/run.sh 0700 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-02] sessão aluno@pts/0 (PID 1204): 2 processo(s) como 'aluno' sem troca de privilégio; login de 10.20.30.44 confirmado no log
+  ✓ [CORR-04] ssh.service: log de início coerente com o PID 612.
+  ✓ [CORR-04] apache2.service: log de início coerente com o PID 733.
+  ✓ [PERM-01] /home/aluno/check.py: pertence a 'aluno' e só é executado por ele: sem cruzamento de privilégio.
+
+LINHA DO TEMPO
+  2026-09-14 09:00:00  systemd: Started ssh.service - OpenBSD Secure Shell server.  -> ssh.service
+  2026-09-14 09:00:00  processo observado no snapshot: PID 1 (root) /sbin/init
+  2026-09-14 09:00:02  systemd: Started apache2.service - The Apache HTTP Server.  -> apache2.service
+  2026-09-14 09:00:02  processo observado no snapshot: PID 612 (root) /usr/sbin/sshd -D  -> ssh.service
+  2026-09-14 09:00:04  processo observado no snapshot: PID 701 (root) /usr/sbin/cron -f  -> cron.service
+  2026-09-14 09:00:06  processo observado no snapshot: PID 733 (www-data) /usr/sbin/apache2 -k start  -> apache2.service
+  2026-09-14 09:00:08  sshd: Accepted publickey for aluno from 10.20.30.44 port 51518 ssh2  -> PID 1204 (aluno); ssh.service
+  2026-09-14 09:00:08  processo observado no snapshot: PID 744 (www-data) /usr/sbin/apache2 -k start  -> apache2.service
+  2026-09-14 09:00:10  systemd-logind: New session 7 of user aluno.
+  2026-09-14 09:00:10  processo observado no snapshot: PID 1204 (aluno) sshd: aluno@pts/0
+  2026-09-14 09:00:12  processo observado no snapshot: PID 1212 (aluno) /bin/bash
+  2026-09-14 09:00:14  processo observado no snapshot: PID 1234 (aluno) /usr/bin/python3 /home/aluno/check.py
+  2026-09-14 09:00:15  python3: routine check completed status=OK  -> PID 1234 (aluno)
+  2026-09-14 09:00:16  processo observado no snapshot: PID 5805 (root) /bin/bash /opt/backup-agent/run.sh  -> backup-agent.service
+  2026-09-14 09:03:00  systemd: Started backup-agent.service - backup-agent service.  -> backup-agent.service
+
+LIMITAÇÕES
+  - snapshot de processos não é atômico: timestamps de 2026-09-14 09:00:00-03:00 a 2026-09-14 09:00:16-03:00.
+  - journal.log não tem ano nem fuso: assumidos 2026 e UTC-03:00 (derivados de processes.csv).
+  - Dataset sintético: mtimes são artificiais; nenhuma conclusão depende só deles.
+  - Snapshot pontual: processos de vida curta entre coletas não são vistos.
+  - Membros de grupos não são coletados: escrita por grupo gera severidade média.
+  - Destinos de rede são classificados de forma descritiva (privado/público), não por reputação.
+
+COBERTURA
+  processes.csv: ok
+  permissions.csv: ok
+  connections.csv: ausente
+  services.txt: ok
+  journal.log: ok

@@ -1,0 +1,4 @@
+proto,state,laddr,lport,raddr,rport,pid
+tcp,ESTABLISHED,10.20.30.10,48122,203.0.113.80,4444,5121
+tcp,LISTEN,0.0.0.0,80,,0,733
+tcp,LISTEN,0.0.0.0,22,,0,612

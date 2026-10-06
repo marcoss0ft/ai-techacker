@@ -1,0 +1,4 @@
+path,type,owner,group,mode,mtime
+/opt/monitor,directory,root,root,0755,2026-09-14T09:00:00-03:00
+/opt/monitor/agent.py,file,root,root,0755,2026-09-13T08:59:00-03:00
+/home/aluno/check.py,file,aluno,aluno,0755,2026-09-12T08:58:00-03:00

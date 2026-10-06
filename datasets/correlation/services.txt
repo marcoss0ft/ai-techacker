@@ -1,0 +1,4 @@
+UNIT                         ACTIVE   USER      EXECSTART
+ssh.service                 running  root      /usr/sbin/sshd -D
+cron.service                running  root      /usr/sbin/cron -f
+backup-agent.service        running  root      /bin/bash /opt/backup/backup.sh

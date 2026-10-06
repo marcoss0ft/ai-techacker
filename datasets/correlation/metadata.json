@@ -1,0 +1,8 @@
+{
+  "dataset_type": "synthetic_training",
+  "level": "basic",
+  "scenario": "correlation",
+  "seed": 42,
+  "generated_at": "2026-09-22T13:59:05.691910-03:00",
+  "warning": "Dados fictícios para uso acadêmico; não representam um incidente real."
+}

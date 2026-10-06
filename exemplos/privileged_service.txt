@@ -1,0 +1,83 @@
+==============================================================================
+ ENDPOINT INVESTIGATOR: dataset:datasets\privileged_service
+ snapshot 2026-09-14 09:00:08 | 5 processos, 3 serviços, 3 objetos, 6 logs, 0 sockets
+==============================================================================
+
+CONCLUSÃO
+  • 2 finding(s): 0 alto, 0 medio, 0 baixo, 2 informativo.
+  • Com as evidências disponíveis, não foram encontradas relações de risco relevantes.
+  • Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta.
+  • Fontes não disponíveis: connections.csv. Conclusões que dependem delas ficam em aberto.
+
+[INFORMATIVO] F-001 Comunicação de saída em contexto root: PID 2421 curl -> updates.example.invalid
+   confiança: media | regra: CORR-02
+   EVIDÊNCIA (observado):
+     - PID 2421 (PPID 2417) user=root cmd='/usr/bin/curl -fsS https://updates.example.invalid/status'  [processes.csv:6]
+     - cadeia: 2421:/usr/bin/curl -fsS https://updates.example.in(root) <- 2417:/bin/bash /opt/backup/backup.sh(root) <- 1:/sbin/init(root)  [árvore de processos]
+     - pertence ao serviço backup-agent.service (descendente de 2417)  [services.txt:4]
+     - /opt/backup/backup.sh (file) modo 0700 dono root:root  [permissions.csv:3]
+     - log: backup-agent[2417] backup job started  [journal.log:3]
+     - log: backup-agent[2417] checking remote status endpoint  [journal.log:4]
+     - log: backup-agent[2417] backup completed with status=OK  [journal.log:5]
+   INTERPRETAÇÃO:
+     - PID 2421 (curl) acessa a rede como root.
+     - Destino(s): updates.example.invalid (domínio reservado (.invalid, RFC 6761)).
+     - Os logs do serviço descrevem essa comunicação: consistente com comportamento esperado.
+   HIPÓTESES:
+     - H1 (compatível com os logs): checagem ou telemetria legítima do serviço.
+     - H2: canal de comando e controle ou exfiltração disfarçado de serviço confiável.
+   EVIDÊNCIA AUSENTE:
+     - resolução DNS e reputação do destino
+     - frequência das conexões (beaconing)
+     - volume e conteúdo trafegado
+   NÃO PROVA: Conexão externa de um serviço root, isoladamente, NÃO caracteriza C2 ou malware.
+
+[INFORMATIVO] F-002 Snapshot de processos e logs não são do mesmo instante
+   confiança: media | regra: CORR-04
+   EVIDÊNCIA (observado):
+     - PID 2417 (PPID 1) user=root cmd='/bin/bash /opt/backup/backup.sh'  [processes.csv:5]
+     - log: systemd[1] Starting backup-agent.service - Internal Backup Agent...  [journal.log:2]
+   INTERPRETAÇÃO:
+     - backup-agent.service: PID 2417 aparece no snapshot em 2026-09-14 09:00:06, antes do início registrado no log (2026-09-14 09:01:00)
+     - A linha do tempo mantém a ordem de cada fonte, mas não permite concluir causalidade entre elas.
+   HIPÓTESES:
+     - H1: fontes coletadas em momentos ou relógios diferentes (mais provável).
+     - H2: serviço reiniciado entre as coletas; H3: log alterado (improvável sem outros indícios).
+   EVIDÊNCIA AUSENTE:
+     - horário exato de coleta de cada fonte
+     - horário real de início dos processos (ps -o lstart)
+   NÃO PROVA: Inconsistência de coleta não é indício de ataque.
+
+VERIFICAÇÕES SEM ACHADO
+  ✓ [CORR-01] ssh.service: executa como root, mas não há permissões coletadas para /usr/sbin/sshd: não dá para afirmar nem descartar risco.
+  ✓ [CORR-01] cron.service: executa como root, mas não há permissões coletadas para /usr/sbin/cron: não dá para afirmar nem descartar risco.
+  ✓ [CORR-01] backup-agent.service: executa como root, mas nenhum recurso é modificável por usuário comum (/opt/backup/backup.sh 0700 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-04] ssh.service: log de início coerente com o PID 612.
+
+LINHA DO TEMPO
+  2026-09-14 09:00:00  systemd: Started ssh.service - OpenBSD Secure Shell server.  -> ssh.service
+  2026-09-14 09:00:00  processo observado no snapshot: PID 1 (root) /sbin/init
+  2026-09-14 09:00:02  processo observado no snapshot: PID 612 (root) /usr/sbin/sshd -D  -> ssh.service
+  2026-09-14 09:00:04  processo observado no snapshot: PID 821 (root) /usr/sbin/cron -f  -> cron.service
+  2026-09-14 09:00:06  processo observado no snapshot: PID 2417 (root) /bin/bash /opt/backup/backup.sh  -> backup-agent.service
+  2026-09-14 09:00:08  processo observado no snapshot: PID 2421 (root) /usr/bin/curl -fsS https://updates.example.invalid/status  -> backup-agent.service
+  2026-09-14 09:01:00  systemd: Starting backup-agent.service - Internal Backup Agent...  -> backup-agent.service
+  2026-09-14 09:01:03  backup-agent: backup job started  -> PID 2417 (root); backup-agent.service
+  2026-09-14 09:01:04  backup-agent: checking remote status endpoint  -> PID 2417 (root); backup-agent.service
+  2026-09-14 09:01:05  backup-agent: backup completed with status=OK  -> PID 2417 (root); backup-agent.service
+  2026-09-14 09:01:06  systemd: backup-agent.service: Deactivated successfully.  -> backup-agent.service
+
+LIMITAÇÕES
+  - snapshot de processos não é atômico: timestamps de 2026-09-14 09:00:00-03:00 a 2026-09-14 09:00:08-03:00.
+  - journal.log não tem ano nem fuso: assumidos 2026 e UTC-03:00 (derivados de processes.csv).
+  - Dataset sintético: mtimes são artificiais; nenhuma conclusão depende só deles.
+  - Snapshot pontual: processos de vida curta entre coletas não são vistos.
+  - Membros de grupos não são coletados: escrita por grupo gera severidade média.
+  - Destinos de rede são classificados de forma descritiva (privado/público), não por reputação.
+
+COBERTURA
+  processes.csv: ok
+  permissions.csv: ok
+  connections.csv: ausente
+  services.txt: ok
+  journal.log: ok

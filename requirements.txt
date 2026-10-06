@@ -1,0 +1,4 @@
+# Nenhuma dependência obrigatória: só a biblioteca padrão do Python (>= 3.10).
+# Para rodar os testes:
+#   Kali/Debian/Ubuntu: sudo apt install python3-pytest
+#   outros sistemas:    pip install pytest

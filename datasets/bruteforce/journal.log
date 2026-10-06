@@ -1,0 +1,16 @@
+Sep 14 09:00:00 srv-app-01 systemd[1]: Started ssh.service - OpenBSD Secure Shell server.
+Sep 14 09:00:02 srv-app-01 systemd[1]: Started apache2.service - The Apache HTTP Server.
+Sep 14 09:00:08 srv-app-01 sshd[1204]: Accepted publickey for aluno from 10.20.30.44 port 51518 ssh2
+Sep 14 09:00:10 srv-app-01 systemd-logind[640]: New session 7 of user aluno.
+Sep 14 09:00:15 srv-app-01 python3[1234]: routine check completed status=OK
+Sep 14 09:05:00 srv-app-01 sshd[4000]: Failed password for root from 203.0.113.25 port 40000 ssh2
+Sep 14 09:05:03 srv-app-01 sshd[4001]: Failed password for admin from 203.0.113.25 port 40001 ssh2
+Sep 14 09:05:06 srv-app-01 sshd[4002]: Failed password for aluno from 203.0.113.25 port 40002 ssh2
+Sep 14 09:05:09 srv-app-01 sshd[4003]: Failed password for aluno from 203.0.113.25 port 40003 ssh2
+Sep 14 09:05:12 srv-app-01 sshd[4004]: Failed password for test from 203.0.113.25 port 40004 ssh2
+Sep 14 09:05:15 srv-app-01 sshd[4005]: Failed password for aluno from 203.0.113.25 port 40005 ssh2
+Sep 14 09:05:18 srv-app-01 sshd[4006]: Failed password for aluno from 203.0.113.25 port 40006 ssh2
+Sep 14 09:05:21 srv-app-01 sshd[4007]: Failed password for aluno from 203.0.113.25 port 40007 ssh2
+Sep 14 09:05:30 srv-app-01 sshd[4410]: Accepted password for aluno from 203.0.113.25 port 40100 ssh2
+Sep 14 09:05:31 srv-app-01 systemd-logind[640]: New session 12 of user aluno.
+Sep 14 09:06:00 srv-app-01 sudo[4450]:    aluno : TTY=pts/1 ; PWD=/home/aluno ; USER=root ; COMMAND=/bin/cat /etc/shadow

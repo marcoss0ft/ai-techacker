@@ -1,0 +1,243 @@
+{
+  "origin": "dataset:datasets\\privileged_service",
+  "collected_at": "2026-09-14T09:00:08-03:00",
+  "metadata": {
+    "dataset_type": "synthetic_training",
+    "level": "basic",
+    "scenario": "privileged_service",
+    "seed": 42,
+    "generated_at": "2026-09-22T13:59:05.467407-03:00",
+    "warning": "Dados fictícios para uso acadêmico; não representam um incidente real."
+  },
+  "inventory": {
+    "processes": 5,
+    "services": 3,
+    "files": 3,
+    "log_events": 6,
+    "connections": 0
+  },
+  "coverage": {
+    "processes.csv": "ok",
+    "permissions.csv": "ok",
+    "connections.csv": "ausente",
+    "services.txt": "ok",
+    "journal.log": "ok"
+  },
+  "conclusion": [
+    "2 finding(s): 0 alto, 0 medio, 0 baixo, 2 informativo.",
+    "Com as evidências disponíveis, não foram encontradas relações de risco relevantes.",
+    "Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta.",
+    "Fontes não disponíveis: connections.csv. Conclusões que dependem delas ficam em aberto."
+  ],
+  "findings": [
+    {
+      "rule": "CORR-02",
+      "title": "Comunicação de saída em contexto root: PID 2421 curl -> updates.example.invalid",
+      "severity": "informativo",
+      "confidence": "media",
+      "evidence": [
+        {
+          "statement": "PID 2421 (PPID 2417) user=root cmd='/usr/bin/curl -fsS https://updates.example.invalid/status'",
+          "ref": "processes.csv:6"
+        },
+        {
+          "statement": "cadeia: 2421:/usr/bin/curl -fsS https://updates.example.in(root) <- 2417:/bin/bash /opt/backup/backup.sh(root) <- 1:/sbin/init(root)",
+          "ref": "árvore de processos"
+        },
+        {
+          "statement": "pertence ao serviço backup-agent.service (descendente de 2417)",
+          "ref": "services.txt:4"
+        },
+        {
+          "statement": "/opt/backup/backup.sh (file) modo 0700 dono root:root",
+          "ref": "permissions.csv:3"
+        },
+        {
+          "statement": "log: backup-agent[2417] backup job started",
+          "ref": "journal.log:3"
+        },
+        {
+          "statement": "log: backup-agent[2417] checking remote status endpoint",
+          "ref": "journal.log:4"
+        },
+        {
+          "statement": "log: backup-agent[2417] backup completed with status=OK",
+          "ref": "journal.log:5"
+        }
+      ],
+      "interpretation": [
+        "PID 2421 (curl) acessa a rede como root.",
+        "Destino(s): updates.example.invalid (domínio reservado (.invalid, RFC 6761)).",
+        "Os logs do serviço descrevem essa comunicação: consistente com comportamento esperado."
+      ],
+      "hypotheses": [
+        "H1 (compatível com os logs): checagem ou telemetria legítima do serviço.",
+        "H2: canal de comando e controle ou exfiltração disfarçado de serviço confiável."
+      ],
+      "missing_evidence": [
+        "resolução DNS e reputação do destino",
+        "frequência das conexões (beaconing)",
+        "volume e conteúdo trafegado"
+      ],
+      "not_proven": "Conexão externa de um serviço root, isoladamente, NÃO caracteriza C2 ou malware.",
+      "entities": {
+        "pids": [
+          "2421"
+        ]
+      },
+      "id": "F-001"
+    },
+    {
+      "rule": "CORR-04",
+      "title": "Snapshot de processos e logs não são do mesmo instante",
+      "severity": "informativo",
+      "confidence": "media",
+      "evidence": [
+        {
+          "statement": "PID 2417 (PPID 1) user=root cmd='/bin/bash /opt/backup/backup.sh'",
+          "ref": "processes.csv:5"
+        },
+        {
+          "statement": "log: systemd[1] Starting backup-agent.service - Internal Backup Agent...",
+          "ref": "journal.log:2"
+        }
+      ],
+      "interpretation": [
+        "backup-agent.service: PID 2417 aparece no snapshot em 2026-09-14 09:00:06, antes do início registrado no log (2026-09-14 09:01:00)",
+        "A linha do tempo mantém a ordem de cada fonte, mas não permite concluir causalidade entre elas."
+      ],
+      "hypotheses": [
+        "H1: fontes coletadas em momentos ou relógios diferentes (mais provável).",
+        "H2: serviço reiniciado entre as coletas; H3: log alterado (improvável sem outros indícios)."
+      ],
+      "missing_evidence": [
+        "horário exato de coleta de cada fonte",
+        "horário real de início dos processos (ps -o lstart)"
+      ],
+      "not_proven": "Inconsistência de coleta não é indício de ataque.",
+      "entities": {},
+      "id": "F-002"
+    }
+  ],
+  "clean_checks": [
+    {
+      "rule": "CORR-01",
+      "subject": "ssh.service",
+      "reason": "executa como root, mas não há permissões coletadas para /usr/sbin/sshd: não dá para afirmar nem descartar risco."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "cron.service",
+      "reason": "executa como root, mas não há permissões coletadas para /usr/sbin/cron: não dá para afirmar nem descartar risco."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "backup-agent.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/opt/backup/backup.sh 0700 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "ssh.service",
+      "reason": "log de início coerente com o PID 612."
+    }
+  ],
+  "timeline": [
+    {
+      "timestamp": "2026-09-14T09:00:00-03:00",
+      "source": "journal.log:1",
+      "event": "systemd: Started ssh.service - OpenBSD Secure Shell server.",
+      "links": [
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:00-03:00",
+      "source": "processes.csv:2",
+      "event": "processo observado no snapshot: PID 1 (root) /sbin/init",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-14T09:00:02-03:00",
+      "source": "processes.csv:3",
+      "event": "processo observado no snapshot: PID 612 (root) /usr/sbin/sshd -D",
+      "links": [
+        "ssh.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:04-03:00",
+      "source": "processes.csv:4",
+      "event": "processo observado no snapshot: PID 821 (root) /usr/sbin/cron -f",
+      "links": [
+        "cron.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:06-03:00",
+      "source": "processes.csv:5",
+      "event": "processo observado no snapshot: PID 2417 (root) /bin/bash /opt/backup/backup.sh",
+      "links": [
+        "backup-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:00:08-03:00",
+      "source": "processes.csv:6",
+      "event": "processo observado no snapshot: PID 2421 (root) /usr/bin/curl -fsS https://updates.example.invalid/status",
+      "links": [
+        "backup-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:01:00-03:00",
+      "source": "journal.log:2",
+      "event": "systemd: Starting backup-agent.service - Internal Backup Agent...",
+      "links": [
+        "backup-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:01:03-03:00",
+      "source": "journal.log:3",
+      "event": "backup-agent: backup job started",
+      "links": [
+        "PID 2417 (root)",
+        "backup-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:01:04-03:00",
+      "source": "journal.log:4",
+      "event": "backup-agent: checking remote status endpoint",
+      "links": [
+        "PID 2417 (root)",
+        "backup-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:01:05-03:00",
+      "source": "journal.log:5",
+      "event": "backup-agent: backup completed with status=OK",
+      "links": [
+        "PID 2417 (root)",
+        "backup-agent.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-14T09:01:06-03:00",
+      "source": "journal.log:6",
+      "event": "systemd: backup-agent.service: Deactivated successfully.",
+      "links": [
+        "backup-agent.service"
+      ]
+    }
+  ],
+  "limitations": [
+    "snapshot de processos não é atômico: timestamps de 2026-09-14 09:00:00-03:00 a 2026-09-14 09:00:08-03:00.",
+    "journal.log não tem ano nem fuso: assumidos 2026 e UTC-03:00 (derivados de processes.csv).",
+    "Dataset sintético: mtimes são artificiais; nenhuma conclusão depende só deles.",
+    "Snapshot pontual: processos de vida curta entre coletas não são vistos.",
+    "Membros de grupos não são coletados: escrita por grupo gera severidade média.",
+    "Destinos de rede são classificados de forma descritiva (privado/público), não por reputação."
+  ]
+}

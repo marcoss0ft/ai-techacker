@@ -1,0 +1,5 @@
+path,type,owner,group,mode,mtime
+/opt/backup,directory,root,root,0755,2026-09-14T09:00:00-03:00
+/opt/backup/backup.sh,file,root,root,0777,2026-09-13T08:59:00-03:00
+/opt/backup/config.ini,file,root,backup,0640,2026-09-12T08:58:00-03:00
+/usr/local/bin/report-sync,file,root,root,4755,2026-09-11T08:57:00-03:00

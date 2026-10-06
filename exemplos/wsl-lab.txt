@@ -1,0 +1,260 @@
+==============================================================================
+ ENDPOINT INVESTIGATOR: live:DESKTOP-SC5NPU5
+ snapshot 2026-09-22 14:10:05 | 41 processos, 15 serviços, 86 objetos, 5000 logs, 7 sockets
+==============================================================================
+
+CONCLUSÃO
+  • 3 finding(s): 2 alto, 0 medio, 1 baixo, 0 informativo.
+  • Relações de risco que merecem investigação prioritária: F-001 lab-backup.service (root) depende de /opt/lab-backup/backup.sh, modificável por usuário comum; F-002 Porta tcp/8099 aberta por processo sem serviço: PID 468 python3.
+  • Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta.
+
+[ALTO       ] F-001 lab-backup.service (root) depende de /opt/lab-backup/backup.sh, modificável por usuário comum
+   confiança: alta | regra: CORR-01
+   EVIDÊNCIA (observado):
+     - serviço lab-backup.service estado=running executa como root: ExecStart='/bin/bash /opt/lab-backup/backup.sh'  [systemctl show lab-backup.service]
+     - PID 516 (PPID 1) user=root cmd='/bin/bash /opt/lab-backup/backup.sh' (vinculado ao serviço por cgroup)  [/proc/516]
+     - /opt/lab-backup/backup.sh (file) modo 0777 dono root:root  [lstat /opt/lab-backup/backup.sh]
+     - /opt/lab-backup/backup.sh é o script usado pelo serviço  [correlação]
+     - 39 eventos de log do serviço entre 2026-09-22 13:31:26 e 2026-09-22 14:10:00  [journalctl:186 … journalctl:5000]
+   INTERPRETAÇÃO:
+     - lab-backup.service roda como root e depende de /opt/lab-backup/backup.sh (script).
+     - /opt/lab-backup/backup.sh pode ser alterado por qualquer usuário (bit 'w' para outros).
+     - Identidade privilegiada + recurso executado + capacidade de modificação: quem alterar o recurso executa código como root na próxima execução do serviço.
+   HIPÓTESES:
+     - H1 (mais provável sem outros indícios): erro de configuração, ex.: chmod 777 em manutenção.
+     - H2: um usuário local alterou /opt/lab-backup/backup.sh para ganhar root. Os dados não mostram alteração, nem a descartam.
+   EVIDÊNCIA AUSENTE:
+     - hash/conteúdo de /opt/lab-backup/backup.sh comparado a uma versão conhecida
+     - auditoria de escrita em /opt/lab-backup/backup.sh (auditd) e ctime do arquivo
+     - histórico de comandos dos usuários que podem escrever no arquivo
+   NÃO PROVA: Não prova exploração: mostra que existe um caminho de escalonamento de privilégio.
+
+[ALTO       ] F-002 Porta tcp/8099 aberta por processo sem serviço: PID 468 python3
+   confiança: alta | regra: CORR-05
+   EVIDÊNCIA (observado):
+     - socket tcp 0.0.0.0:8099 -> 0.0.0.0:0 LISTEN  [/proc/net/tcp]
+     - PID 468 (PPID 386) user=marcosarpc cmd='/dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0'  [/proc/468]
+     - cadeia: 468:/dev/shm/.lab/python3 -m http.server 8099 --b(marcosarpc) <- 386:/init(root) <- 385:/init(root) <- 2:/init(root) <- 1:/sbin/init(root)  [árvore de processos]
+     - nenhum serviço gerencia este processo  [correlação]
+     - /dev/shm/.lab/python3 (file) modo 0755 dono marcosarpc:marcosarpc  [lstat /dev/shm/.lab/python3]
+   INTERPRETAÇÃO:
+     - PID 468 ('marcosarpc') aceita conexões em 0.0.0.0:8099 sem ser serviço gerenciado.
+     - O executável está em local volátil ou oculto.
+   HIPÓTESES:
+     - H1: servidor de teste iniciado manualmente por um usuário.
+     - H2: backdoor aguardando conexão.
+   EVIDÊNCIA AUSENTE:
+     - quem se conectou à porta (firewall, conntrack)
+     - conteúdo e hash de /dev/shm/.lab/python3
+     - qual sessão iniciou o processo
+   NÃO PROVA: Porta aberta por processo não gerenciado não prova backdoor.
+
+[BAIXO      ] F-003 Permissão excessiva sem consumidor privilegiado: /tmp/lab/job.sh (0777)
+   confiança: alta | regra: PERM-01
+   EVIDÊNCIA (observado):
+     - /tmp/lab/job.sh (file) modo 0777 dono marcosarpc:marcosarpc  [lstat /tmp/lab/job.sh]
+     - PID 478 (PPID 386) user=marcosarpc cmd='/bin/bash /tmp/lab/job.sh' (consumidor não privilegiado)  [/proc/478]
+   INTERPRETAÇÃO:
+     - /tmp/lab/job.sh é gravável por qualquer usuário.
+     - Nenhum serviço ou processo root depende dele: é configuração inadequada, não escalonamento.
+   HIPÓTESES:
+     - H1: permissão ampla por conveniência.
+     - H2: é usado por algo não observado (cron, timer); nesse caso o risco seria o do CORR-01.
+   EVIDÊNCIA AUSENTE:
+     - crontabs e timers que citem o caminho
+     - grep -R '/tmp/lab/job.sh' /etc
+   NÃO PROVA: Não há evidência de exploração nem de uso privilegiado deste arquivo.
+
+VERIFICAÇÕES SEM ACHADO
+  ✓ [CORR-01] cron.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/sbin/cron 0755 root:root, /usr/lib/systemd/system/cron.service 0644 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] dbus.service: unit sem User= (root), mas o processo executa como messagebus.
+  ✓ [CORR-01] getty@tty1.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/sbin/agetty 0755 root:root, /usr/lib/systemd/system/getty@.service 0644 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] lab-ok.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/bin/bash 0755 root:root, /opt/lab-ok/run.sh 0700 root:root, /etc/systemd/system/lab-ok.service 0644 root:root, /usr/bin/sleep 0755 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] networkd-dispatcher.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/bin/networkd-dispatcher 0755 root:root, /usr/lib/systemd/system/networkd-dispatcher.service 0644 root:root, /usr/bin/python3.10 0755 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] rsyslog.service: unit sem User= (root), mas o processo executa como syslog.
+  ✓ [CORR-01] snap.ubuntu-desktop-installer.subiquity-server.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/bin/snap 0755 root:root, /etc/systemd/system/snap.ubuntu-desktop-installer.subiquity-server.service 0644 root:root, /usr/bin/bash 0755 root:root, /snap/ubuntu-desktop-installer/1286/bin/subiquity-server 0755 root:root, /snap/ubuntu-desktop-installer/1286/usr/bin/python3.10 0755 root:root, /snap/ubuntu-desktop-installer/1286/usr/bin/cloud-init 0755 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] snapd.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/lib/snapd/snapd 0755 root:root, /usr/lib/systemd/system/snapd.service 0644 root:root, /snap/snapd/25935/usr/lib/snapd/snapd 0755 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] systemd-journald.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/lib/systemd/systemd-journald 0755 root:root, /usr/lib/systemd/system/systemd-journald.service 0644 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] systemd-logind.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/lib/systemd/systemd-logind 0755 root:root, /usr/lib/systemd/system/systemd-logind.service 0644 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] systemd-udevd.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/bin/udevadm 0755 root:root, /usr/lib/systemd/system/systemd-udevd.service 0644 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] unattended-upgrades.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/share/unattended-upgrades/unattended-upgrade-shutdown 0755 root:root, /usr/lib/systemd/system/unattended-upgrades.service 0644 root:root, /usr/bin/python3.10 0755 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-01] user@0.service: executa como root, mas nenhum recurso é modificável por usuário comum (/usr/lib/systemd/systemd 0755 root:root, /usr/lib/systemd/system/user@.service 0644 root:root). Privilégio sozinho não é vulnerabilidade.
+  ✓ [CORR-04] cron.service: log de início coerente com o PID 181.
+  ✓ [CORR-04] dbus.service: log de início coerente com o PID 183.
+  ✓ [CORR-04] getty@tty1.service: log de início coerente com o PID 247.
+  ✓ [CORR-04] lab-backup.service: log de início coerente com o PID 516.
+  ✓ [CORR-04] lab-ok.service: log de início coerente com o PID 518.
+  ✓ [CORR-04] networkd-dispatcher.service: log de início coerente com o PID 197.
+  ✓ [CORR-04] rsyslog.service: log de início coerente com o PID 198.
+  ✓ [CORR-04] snap.ubuntu-desktop-installer.subiquity-server.service: log de início coerente com o PID 236.
+  ✓ [CORR-04] snapd.service: log de início coerente com o PID 200.
+  ✓ [CORR-04] systemd-logind.service: log de início coerente com o PID 203.
+  ✓ [CORR-04] systemd-resolved.service: log de início coerente com o PID 126.
+  ✓ [CORR-04] systemd-udevd.service: log de início coerente com o PID 60.
+  ✓ [CORR-04] unattended-upgrades.service: log de início coerente com o PID 243.
+  ✓ [CORR-04] user@0.service: log de início coerente com o PID 414.
+  ✓ [CORR-05] tcp/53 (systemd-resolved): porta pertence ao serviço systemd-resolved.service.
+  ✓ [CORR-05] udp/53 (systemd-resolved): porta pertence ao serviço systemd-resolved.service.
+  ✓ [PERM-01] /dev/shm/.lab/python3: pertence a 'marcosarpc' e só é executado por ele: sem cruzamento de privilégio.
+
+LINHA DO TEMPO
+  2026-09-22 13:31:25  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:31:25  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:31:25  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:31:25  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf "#!/bin/bash\\nwhile true; do sleep 60; done\\n" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:31:25  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:31:25  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:31:26  systemd: Started Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 13:31:26  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 13:31:56  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 13:32:02  systemd: Stopping Lab backup agent (Endpoint Investigator)...  -> lab-backup.service
+  2026-09-22 13:32:02  systemd: lab-backup.service: Deactivated successfully.  -> lab-backup.service
+  2026-09-22 13:32:02  systemd: Stopped Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 13:32:36  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:32:36  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:32:36  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:32:36  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf "#!/bin/bash\\nwhile true; do sleep 60; done\\n" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:32:36  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:32:36  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:32:37  systemd: Started Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 13:32:37  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 13:33:07  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 13:33:13  systemd: Stopping Lab backup agent (Endpoint Investigator)...  -> lab-backup.service
+  2026-09-22 13:33:13  systemd: lab-backup.service: Deactivated successfully.  -> lab-backup.service
+  2026-09-22 13:33:13  systemd: Stopped Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 13:33:50  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:33:50  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:33:50  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:33:50  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf "#!/bin/bash\\nwhile true; do sleep 60; done\\n" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:33:50  sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:33:50  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:33:51  systemd: Started Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 13:33:51  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 13:34:21  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 13:34:27  systemd: Stopping Lab backup agent (Endpoint Investigator)...  -> lab-backup.service
+  2026-09-22 13:34:27  systemd: lab-backup.service: Deactivated successfully.  -> lab-backup.service
+  2026-09-22 13:34:27  systemd: Stopped Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 13:35:28  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:35:28  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:35:28  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:35:28  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf "#!/bin/bash\\nwhile true; do sleep 60; done\\n" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:35:28  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 13:35:28  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 13:35:28  systemd: Started Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 13:35:29  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 13:35:59  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 13:36:04  systemd: Stopping Lab backup agent (Endpoint Investigator)...  -> lab-backup.service
+  2026-09-22 13:36:04  systemd: lab-backup.service: Deactivated successfully.  -> lab-backup.service
+  2026-09-22 13:36:04  systemd: Stopped Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 14:06:01  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:06:01  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:06:01  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:06:01  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf "#!/bin/bash\\nwhile true; do sleep 60; done\\n" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:06:01  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:06:01  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:06:01  systemd: Started Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 14:06:01  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 14:06:31  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 14:06:37  systemd: Stopping Lab backup agent (Endpoint Investigator)...  -> lab-backup.service
+  2026-09-22 14:06:37  systemd: lab-backup.service: Deactivated successfully.  -> lab-backup.service
+  2026-09-22 14:06:37  systemd: Stopped Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 14:07:59  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:07:59  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:07:59  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:07:59  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf "#!/bin/bash\\nwhile true; do sleep 60; done\\n" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:07:59  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:07:59  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:08:00  systemd: Started Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 14:08:00  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 14:08:30  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 14:08:35  systemd: Stopping Lab backup agent (Endpoint Investigator)...  -> lab-backup.service
+  2026-09-22 14:08:35  systemd: lab-backup.service: Deactivated successfully.  -> lab-backup.service
+  2026-09-22 14:08:35  systemd: Stopped Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 14:09:30  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:09:30  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:09:30  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:09:30  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf "#!/bin/bash\\nwhile true; do sleep 60; done\\n" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:09:30  sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)
+  2026-09-22 14:09:30  sudo: pam_unix(sudo:session): session closed for user marcosarpc
+  2026-09-22 14:09:30  systemd: Started Lab backup agent (Endpoint Investigator).  -> lab-backup.service
+  2026-09-22 14:09:30  lab-backup: backup ok  -> lab-backup.service
+  2026-09-22 14:09:30  início do processo: PID 468 (marcosarpc) /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0
+  2026-09-22 14:09:30  mtime de /tmp/lab/job.sh (0777)  -> F-003
+  2026-09-22 14:09:30  mtime de /opt/lab-backup/backup.sh (0777)  -> F-001
+  2026-09-22 14:09:30  início do processo: PID 516 (root) /bin/bash /opt/lab-backup/backup.sh  -> lab-backup.service
+  2026-09-22 14:10:00  lab-backup: backup ok  -> lab-backup.service
+
+LIMITAÇÕES
+  - Snapshot pontual: processos de vida curta entre coletas não são vistos.
+  - Membros de grupos não são coletados: escrita por grupo gera severidade média.
+  - Destinos de rede são classificados de forma descritiva (privado/público), não por reputação.
+
+COBERTURA
+  /proc: ok
+  systemctl: ok (15 serviços em execução)
+  permissions (lstat): ok (86 objetos)
+  journalctl: ok (5000 eventos, últimas 24h)
+  /proc/net: ok (7 sockets; 4 sem PID: sem permissão ou socket do kernel)

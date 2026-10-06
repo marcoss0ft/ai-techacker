@@ -1,0 +1,7 @@
+Sep 14 09:00:00 srv-app-01 systemd[1]: Started ssh.service - OpenBSD Secure Shell server.
+Sep 14 09:02:00 srv-app-01 systemd[1]: Starting backup-agent.service - Internal Backup Agent...
+Sep 14 09:02:03 srv-app-01 backup-agent[2417]: backup job started
+Sep 14 09:02:04 srv-app-01 backup-agent[2417]: checking remote status endpoint
+Sep 14 09:02:05 srv-app-01 backup-agent[2417]: backup completed with status=OK
+Sep 14 09:25:00 srv-app-01 sshd[2630]: Accepted publickey for aluno from 10.20.30.44 port 51518 ssh2
+Sep 14 09:25:02 srv-app-01 systemd-logind[640]: New session 9 of user aluno.

@@ -1,0 +1,1299 @@
+{
+  "origin": "live:DESKTOP-SC5NPU5",
+  "collected_at": "2026-09-22T14:10:05.682390-03:00",
+  "metadata": {
+    "collector": "live",
+    "euid": 0,
+    "kernel": "6.18.33.2-microsoft-standard-WSL2"
+  },
+  "inventory": {
+    "processes": 41,
+    "services": 15,
+    "files": 86,
+    "log_events": 5000,
+    "connections": 7
+  },
+  "coverage": {
+    "/proc": "ok",
+    "systemctl": "ok (15 serviços em execução)",
+    "permissions (lstat)": "ok (86 objetos)",
+    "journalctl": "ok (5000 eventos, últimas 24h)",
+    "/proc/net": "ok (7 sockets; 4 sem PID: sem permissão ou socket do kernel)"
+  },
+  "conclusion": [
+    "3 finding(s): 2 alto, 0 medio, 1 baixo, 0 informativo.",
+    "Relações de risco que merecem investigação prioritária: F-001 lab-backup.service (root) depende de /opt/lab-backup/backup.sh, modificável por usuário comum; F-002 Porta tcp/8099 aberta por processo sem serviço: PID 468 python3.",
+    "Nenhum finding, isoladamente, prova exploração: cada um lista a evidência que falta."
+  ],
+  "findings": [
+    {
+      "rule": "CORR-01",
+      "title": "lab-backup.service (root) depende de /opt/lab-backup/backup.sh, modificável por usuário comum",
+      "severity": "alto",
+      "confidence": "alta",
+      "evidence": [
+        {
+          "statement": "serviço lab-backup.service estado=running executa como root: ExecStart='/bin/bash /opt/lab-backup/backup.sh'",
+          "ref": "systemctl show lab-backup.service"
+        },
+        {
+          "statement": "PID 516 (PPID 1) user=root cmd='/bin/bash /opt/lab-backup/backup.sh' (vinculado ao serviço por cgroup)",
+          "ref": "/proc/516"
+        },
+        {
+          "statement": "/opt/lab-backup/backup.sh (file) modo 0777 dono root:root",
+          "ref": "lstat /opt/lab-backup/backup.sh"
+        },
+        {
+          "statement": "/opt/lab-backup/backup.sh é o script usado pelo serviço",
+          "ref": "correlação"
+        },
+        {
+          "statement": "39 eventos de log do serviço entre 2026-09-22 13:31:26 e 2026-09-22 14:10:00",
+          "ref": "journalctl:186 … journalctl:5000"
+        }
+      ],
+      "interpretation": [
+        "lab-backup.service roda como root e depende de /opt/lab-backup/backup.sh (script).",
+        "/opt/lab-backup/backup.sh pode ser alterado por qualquer usuário (bit 'w' para outros).",
+        "Identidade privilegiada + recurso executado + capacidade de modificação: quem alterar o recurso executa código como root na próxima execução do serviço."
+      ],
+      "hypotheses": [
+        "H1 (mais provável sem outros indícios): erro de configuração, ex.: chmod 777 em manutenção.",
+        "H2: um usuário local alterou /opt/lab-backup/backup.sh para ganhar root. Os dados não mostram alteração, nem a descartam."
+      ],
+      "missing_evidence": [
+        "hash/conteúdo de /opt/lab-backup/backup.sh comparado a uma versão conhecida",
+        "auditoria de escrita em /opt/lab-backup/backup.sh (auditd) e ctime do arquivo",
+        "histórico de comandos dos usuários que podem escrever no arquivo"
+      ],
+      "not_proven": "Não prova exploração: mostra que existe um caminho de escalonamento de privilégio.",
+      "entities": {
+        "services": [
+          "lab-backup.service"
+        ],
+        "pids": [
+          "516"
+        ],
+        "paths": [
+          "/opt/lab-backup/backup.sh"
+        ]
+      },
+      "id": "F-001"
+    },
+    {
+      "rule": "CORR-05",
+      "title": "Porta tcp/8099 aberta por processo sem serviço: PID 468 python3",
+      "severity": "alto",
+      "confidence": "alta",
+      "evidence": [
+        {
+          "statement": "socket tcp 0.0.0.0:8099 -> 0.0.0.0:0 LISTEN",
+          "ref": "/proc/net/tcp"
+        },
+        {
+          "statement": "PID 468 (PPID 386) user=marcosarpc cmd='/dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0'",
+          "ref": "/proc/468"
+        },
+        {
+          "statement": "cadeia: 468:/dev/shm/.lab/python3 -m http.server 8099 --b(marcosarpc) <- 386:/init(root) <- 385:/init(root) <- 2:/init(root) <- 1:/sbin/init(root)",
+          "ref": "árvore de processos"
+        },
+        {
+          "statement": "nenhum serviço gerencia este processo",
+          "ref": "correlação"
+        },
+        {
+          "statement": "/dev/shm/.lab/python3 (file) modo 0755 dono marcosarpc:marcosarpc",
+          "ref": "lstat /dev/shm/.lab/python3"
+        }
+      ],
+      "interpretation": [
+        "PID 468 ('marcosarpc') aceita conexões em 0.0.0.0:8099 sem ser serviço gerenciado.",
+        "O executável está em local volátil ou oculto."
+      ],
+      "hypotheses": [
+        "H1: servidor de teste iniciado manualmente por um usuário.",
+        "H2: backdoor aguardando conexão."
+      ],
+      "missing_evidence": [
+        "quem se conectou à porta (firewall, conntrack)",
+        "conteúdo e hash de /dev/shm/.lab/python3",
+        "qual sessão iniciou o processo"
+      ],
+      "not_proven": "Porta aberta por processo não gerenciado não prova backdoor.",
+      "entities": {
+        "pids": [
+          "468"
+        ]
+      },
+      "id": "F-002"
+    },
+    {
+      "rule": "PERM-01",
+      "title": "Permissão excessiva sem consumidor privilegiado: /tmp/lab/job.sh (0777)",
+      "severity": "baixo",
+      "confidence": "alta",
+      "evidence": [
+        {
+          "statement": "/tmp/lab/job.sh (file) modo 0777 dono marcosarpc:marcosarpc",
+          "ref": "lstat /tmp/lab/job.sh"
+        },
+        {
+          "statement": "PID 478 (PPID 386) user=marcosarpc cmd='/bin/bash /tmp/lab/job.sh' (consumidor não privilegiado)",
+          "ref": "/proc/478"
+        }
+      ],
+      "interpretation": [
+        "/tmp/lab/job.sh é gravável por qualquer usuário.",
+        "Nenhum serviço ou processo root depende dele: é configuração inadequada, não escalonamento."
+      ],
+      "hypotheses": [
+        "H1: permissão ampla por conveniência.",
+        "H2: é usado por algo não observado (cron, timer); nesse caso o risco seria o do CORR-01."
+      ],
+      "missing_evidence": [
+        "crontabs e timers que citem o caminho",
+        "grep -R '/tmp/lab/job.sh' /etc"
+      ],
+      "not_proven": "Não há evidência de exploração nem de uso privilegiado deste arquivo.",
+      "entities": {
+        "paths": [
+          "/tmp/lab/job.sh"
+        ]
+      },
+      "id": "F-003"
+    }
+  ],
+  "clean_checks": [
+    {
+      "rule": "CORR-01",
+      "subject": "cron.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/sbin/cron 0755 root:root, /usr/lib/systemd/system/cron.service 0644 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "dbus.service",
+      "reason": "unit sem User= (root), mas o processo executa como messagebus."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "getty@tty1.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/sbin/agetty 0755 root:root, /usr/lib/systemd/system/getty@.service 0644 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "lab-ok.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/bin/bash 0755 root:root, /opt/lab-ok/run.sh 0700 root:root, /etc/systemd/system/lab-ok.service 0644 root:root, /usr/bin/sleep 0755 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "networkd-dispatcher.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/bin/networkd-dispatcher 0755 root:root, /usr/lib/systemd/system/networkd-dispatcher.service 0644 root:root, /usr/bin/python3.10 0755 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "rsyslog.service",
+      "reason": "unit sem User= (root), mas o processo executa como syslog."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "snap.ubuntu-desktop-installer.subiquity-server.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/bin/snap 0755 root:root, /etc/systemd/system/snap.ubuntu-desktop-installer.subiquity-server.service 0644 root:root, /usr/bin/bash 0755 root:root, /snap/ubuntu-desktop-installer/1286/bin/subiquity-server 0755 root:root, /snap/ubuntu-desktop-installer/1286/usr/bin/python3.10 0755 root:root, /snap/ubuntu-desktop-installer/1286/usr/bin/cloud-init 0755 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "snapd.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/lib/snapd/snapd 0755 root:root, /usr/lib/systemd/system/snapd.service 0644 root:root, /snap/snapd/25935/usr/lib/snapd/snapd 0755 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "systemd-journald.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/lib/systemd/systemd-journald 0755 root:root, /usr/lib/systemd/system/systemd-journald.service 0644 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "systemd-logind.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/lib/systemd/systemd-logind 0755 root:root, /usr/lib/systemd/system/systemd-logind.service 0644 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "systemd-udevd.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/bin/udevadm 0755 root:root, /usr/lib/systemd/system/systemd-udevd.service 0644 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "unattended-upgrades.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/share/unattended-upgrades/unattended-upgrade-shutdown 0755 root:root, /usr/lib/systemd/system/unattended-upgrades.service 0644 root:root, /usr/bin/python3.10 0755 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-01",
+      "subject": "user@0.service",
+      "reason": "executa como root, mas nenhum recurso é modificável por usuário comum (/usr/lib/systemd/systemd 0755 root:root, /usr/lib/systemd/system/user@.service 0644 root:root). Privilégio sozinho não é vulnerabilidade."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "cron.service",
+      "reason": "log de início coerente com o PID 181."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "dbus.service",
+      "reason": "log de início coerente com o PID 183."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "getty@tty1.service",
+      "reason": "log de início coerente com o PID 247."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "lab-backup.service",
+      "reason": "log de início coerente com o PID 516."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "lab-ok.service",
+      "reason": "log de início coerente com o PID 518."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "networkd-dispatcher.service",
+      "reason": "log de início coerente com o PID 197."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "rsyslog.service",
+      "reason": "log de início coerente com o PID 198."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "snap.ubuntu-desktop-installer.subiquity-server.service",
+      "reason": "log de início coerente com o PID 236."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "snapd.service",
+      "reason": "log de início coerente com o PID 200."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "systemd-logind.service",
+      "reason": "log de início coerente com o PID 203."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "systemd-resolved.service",
+      "reason": "log de início coerente com o PID 126."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "systemd-udevd.service",
+      "reason": "log de início coerente com o PID 60."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "unattended-upgrades.service",
+      "reason": "log de início coerente com o PID 243."
+    },
+    {
+      "rule": "CORR-04",
+      "subject": "user@0.service",
+      "reason": "log de início coerente com o PID 414."
+    },
+    {
+      "rule": "CORR-05",
+      "subject": "tcp/53 (systemd-resolved)",
+      "reason": "porta pertence ao serviço systemd-resolved.service."
+    },
+    {
+      "rule": "CORR-05",
+      "subject": "udp/53 (systemd-resolved)",
+      "reason": "porta pertence ao serviço systemd-resolved.service."
+    },
+    {
+      "rule": "PERM-01",
+      "subject": "/dev/shm/.lab/python3",
+      "reason": "pertence a 'marcosarpc' e só é executado por ele: sem cruzamento de privilégio."
+    }
+  ],
+  "timeline": [
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:169",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:170",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:171",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:172",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:173",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:174",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:175",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:176",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:177",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:178",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf \"#!/bin/bash\\\\nwhile true; do sleep 60; done\\\\n\" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:179",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:180",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:181",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:182",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:25-03:00",
+      "source": "journalctl:183",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:31:26-03:00",
+      "source": "journalctl:186",
+      "event": "systemd: Started Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:31:26-03:00",
+      "source": "journalctl:188",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:31:56-03:00",
+      "source": "journalctl:191",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:32:02-03:00",
+      "source": "journalctl:192",
+      "event": "systemd: Stopping Lab backup agent (Endpoint Investigator)...",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:32:02-03:00",
+      "source": "journalctl:193",
+      "event": "systemd: lab-backup.service: Deactivated successfully.",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:32:02-03:00",
+      "source": "journalctl:194",
+      "event": "systemd: Stopped Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:200",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:201",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:202",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:203",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:204",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:205",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:206",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:207",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:208",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:209",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf \"#!/bin/bash\\\\nwhile true; do sleep 60; done\\\\n\" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:210",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:211",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:212",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:213",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:36-03:00",
+      "source": "journalctl:214",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:32:37-03:00",
+      "source": "journalctl:217",
+      "event": "systemd: Started Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:32:37-03:00",
+      "source": "journalctl:218",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:33:07-03:00",
+      "source": "journalctl:220",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:33:13-03:00",
+      "source": "journalctl:221",
+      "event": "systemd: Stopping Lab backup agent (Endpoint Investigator)...",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:33:13-03:00",
+      "source": "journalctl:222",
+      "event": "systemd: lab-backup.service: Deactivated successfully.",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:33:13-03:00",
+      "source": "journalctl:223",
+      "event": "systemd: Stopped Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:229",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:230",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:231",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:232",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:233",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:234",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:235",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:236",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:237",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:238",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf \"#!/bin/bash\\\\nwhile true; do sleep 60; done\\\\n\" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:239",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:240",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:241",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/mnt/c/Users/marco/insper/7/TechHacker/AI ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:242",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:50-03:00",
+      "source": "journalctl:243",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:33:51-03:00",
+      "source": "journalctl:246",
+      "event": "systemd: Started Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:33:51-03:00",
+      "source": "journalctl:248",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:34:21-03:00",
+      "source": "journalctl:249",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:34:27-03:00",
+      "source": "journalctl:250",
+      "event": "systemd: Stopping Lab backup agent (Endpoint Investigator)...",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:34:27-03:00",
+      "source": "journalctl:251",
+      "event": "systemd: lab-backup.service: Deactivated successfully.",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:34:27-03:00",
+      "source": "journalctl:252",
+      "event": "systemd: Stopped Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1185",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1186",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1187",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1188",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1189",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1190",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1191",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1192",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1193",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1194",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf \"#!/bin/bash\\\\nwhile true; do sleep 60; done\\\\n\" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1195",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1196",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1197",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1198",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1199",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T13:35:28-03:00",
+      "source": "journalctl:1202",
+      "event": "systemd: Started Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:35:29-03:00",
+      "source": "journalctl:1204",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:35:59-03:00",
+      "source": "journalctl:1206",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:36:04-03:00",
+      "source": "journalctl:1207",
+      "event": "systemd: Stopping Lab backup agent (Endpoint Investigator)...",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:36:04-03:00",
+      "source": "journalctl:1208",
+      "event": "systemd: lab-backup.service: Deactivated successfully.",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T13:36:04-03:00",
+      "source": "journalctl:1209",
+      "event": "systemd: Stopped Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3072",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3073",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3074",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3075",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3076",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3077",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3078",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3079",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3080",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3081",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf \"#!/bin/bash\\\\nwhile true; do sleep 60; done\\\\n\" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3082",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3083",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3084",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3085",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3086",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3089",
+      "event": "systemd: Started Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:06:01-03:00",
+      "source": "journalctl:3091",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:06:31-03:00",
+      "source": "journalctl:3092",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:06:37-03:00",
+      "source": "journalctl:3093",
+      "event": "systemd: Stopping Lab backup agent (Endpoint Investigator)...",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:06:37-03:00",
+      "source": "journalctl:3094",
+      "event": "systemd: lab-backup.service: Deactivated successfully.",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:06:37-03:00",
+      "source": "journalctl:3095",
+      "event": "systemd: Stopped Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4033",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4034",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4035",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4036",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4037",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4038",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4039",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4040",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4041",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4042",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf \"#!/bin/bash\\\\nwhile true; do sleep 60; done\\\\n\" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4043",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4044",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4045",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4046",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:07:59-03:00",
+      "source": "journalctl:4047",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:08:00-03:00",
+      "source": "journalctl:4052",
+      "event": "systemd: Started Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:08:00-03:00",
+      "source": "journalctl:4054",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:08:30-03:00",
+      "source": "journalctl:4056",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:08:35-03:00",
+      "source": "journalctl:4057",
+      "event": "systemd: Stopping Lab backup agent (Endpoint Investigator)...",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:08:35-03:00",
+      "source": "journalctl:4058",
+      "event": "systemd: lab-backup.service: Deactivated successfully.",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:08:35-03:00",
+      "source": "journalctl:4059",
+      "event": "systemd: Stopped Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4977",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/mkdir -p /dev/shm/.lab",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4978",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4979",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4980",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/cp /usr/bin/python3 /dev/shm/.lab/python3",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4981",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4982",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4983",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4984",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4985",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4986",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'mkdir -p /tmp/lab && printf \"#!/bin/bash\\\\nwhile true; do sleep 60; done\\\\n\" > /tmp/lab/job.sh && chmod 0777 /tmp/lab/job.sh'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4987",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4988",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4989",
+      "event": "sudo:     root : TTY=pts/0 ; PWD=/opt/ei ; USER=marcosarpc ; COMMAND=/usr/bin/bash -c 'nohup /bin/bash /tmp/lab/job.sh >/dev/null 2>&1 &'",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4990",
+      "event": "sudo: pam_unix(sudo:session): session opened for user marcosarpc(uid=1000) by (uid=0)",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4991",
+      "event": "sudo: pam_unix(sudo:session): session closed for user marcosarpc",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4994",
+      "event": "systemd: Started Lab backup agent (Endpoint Investigator).",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30-03:00",
+      "source": "journalctl:4996",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30.080000-03:00",
+      "source": "/proc/468",
+      "event": "início do processo: PID 468 (marcosarpc) /dev/shm/.lab/python3 -m http.server 8099 --bind 0.0.0.0",
+      "links": []
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30.231244-03:00",
+      "source": "lstat /tmp/lab/job.sh",
+      "event": "mtime de /tmp/lab/job.sh (0777)",
+      "links": [
+        "F-003"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30.268427-03:00",
+      "source": "lstat /opt/lab-backup/backup.sh",
+      "event": "mtime de /opt/lab-backup/backup.sh (0777)",
+      "links": [
+        "F-001"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:09:30.410000-03:00",
+      "source": "/proc/516",
+      "event": "início do processo: PID 516 (root) /bin/bash /opt/lab-backup/backup.sh",
+      "links": [
+        "lab-backup.service"
+      ]
+    },
+    {
+      "timestamp": "2026-09-22T14:10:00-03:00",
+      "source": "journalctl:5000",
+      "event": "lab-backup: backup ok",
+      "links": [
+        "lab-backup.service"
+      ]
+    }
+  ],
+  "limitations": [
+    "Snapshot pontual: processos de vida curta entre coletas não são vistos.",
+    "Membros de grupos não são coletados: escrita por grupo gera severidade média.",
+    "Destinos de rede são classificados de forma descritiva (privado/público), não por reputação."
+  ]
+}
